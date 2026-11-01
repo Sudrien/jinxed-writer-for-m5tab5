@@ -9,6 +9,7 @@
 #include "usbhost.h"
 
 #include "display.h"
+#include "editor.h"
 #include "kbd.h"
 
 static const char *TAG = "jinxed";
@@ -27,16 +28,7 @@ void app_main(void)
     ESP_ERROR_CHECK(kbd_init());
     usbhost_start();
 
-    gfx_draw_text(24, 24, "jinxed writer", 3, gfx_w() - 48, COL_DIM);
-    gfx_blit(0, gfx_h());
-    ESP_LOGI(TAG, "display %dx%d", gfx_w(), gfx_h());
-
-    /* Until the editor exists: every key, to the log. */
-    for (;;) {
-        kbd_event_t ev;
-        if (!kbd_get(&ev, portMAX_DELAY)) continue;
-        const char c = kbd_ascii(ev.usage, ev.mods, false);
-        ESP_LOGI(TAG, "%s 0x%02X mods 0x%02X '%c'", ev.down ? "down" : "up  ",
-                 ev.usage, ev.mods, (c >= 0x20 && c < 0x7F) ? c : ' ');
-    }
+    ESP_ERROR_CHECK(editor_init());
+    ESP_LOGI(TAG, "ready, %dx%d", gfx_w(), gfx_h());
+    editor_run();
 }
