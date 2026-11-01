@@ -1,0 +1,20 @@
+# Every feckless component at the same tag. The components require each
+# other by name, so this is the one place the tag is written.
+dependencies:
+  idf:
+    version: ">=6.1"
+
+  feckless_drivers:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_drivers
+    version: "v0.8.7"
+  feckless_graphics_handler:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_graphics_handler
+    version: "v0.8.7"
+  # Required by name by feckless_drivers, which links it whether or not
+  # anything plays audio.
+  usb_host_uac:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/usb_host_uac
+    version: "v0.8.7"
