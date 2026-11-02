@@ -3,6 +3,7 @@
  *
  * SPDX-License-Identifier: MIT
  */
+#include "esp_app_desc.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "lcd.h"
@@ -23,6 +24,18 @@ static const char *TAG = "jinxed";
 
 void app_main(void)
 {
+    /* Where this program starts in the log -- above is the ROM, the
+     * bootloader and IDF's startup -- and what it was built from, so a
+     * log can be matched to a tree. A warning, so it survives the info
+     * level turned down; first, so a failure in the first init is still
+     * below it. Defeatist's and Avoidant's line, in this program's name. */
+    {
+        const esp_app_desc_t *d = esp_app_get_description();
+        ESP_LOGW(TAG, "=== Jinxed Writer === %s, IDF %s, built %s %s",
+                 d ? d->version : "?", d ? d->idf_ver : "?",
+                 d ? d->date : "?", d ? d->time : "?");
+    }
+
     /* First thing: the bus, and the expanders holding the panel's
      * reset line and USB5V_EN. Spec section 1. */
     ESP_ERROR_CHECK(tab5io_init());
