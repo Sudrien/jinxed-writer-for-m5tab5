@@ -5,6 +5,9 @@
  */
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "lcd.h"
+#include "nvs_handler.h"
+#include "touch.h"
 #include "rtc8130.h"
 #include "storage.h"
 #include "storage_io.h"
@@ -25,7 +28,16 @@ void app_main(void)
     /* Timestamps for the log. Absent or VLF is not fatal: records are
      * marked untrusted instead (spec section 4). */
     if (!rtc8130_init(tab5io_bus())) ESP_LOGW(TAG, "no RTC; log times untrusted");
+    /* NVS: the email account (feckless_mail), later the Wi-Fi list. */
+    ESP_ERROR_CHECK(nvsh_init());
     ESP_ERROR_CHECK(display_init());
+    /* Touch after the panel (TP_RST rides on its reset write), turned
+     * with the picture. Not fatal: the keyboard does everything. */
+    if (touch_init(tab5io_bus(), LCD_H_RES, LCD_V_RES) == ESP_OK) {
+        touch_set_rotation(DISPLAY_ROTATION);
+    } else {
+        ESP_LOGW(TAG, "no touch panel");
+    }
 
     /* The port's owner, then the keyboard client, then power: a
      * keyboard already plugged in enumerates the moment VBUS arrives,

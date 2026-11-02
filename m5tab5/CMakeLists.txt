@@ -13,3 +13,9 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 idf_build_set_property(MINIMAL_BUILD ON)
 
 project(jinxed_writer)
+
+# libversions.h: the settings page's Libraries section, written at
+# configure time from the build's own lock and components, so the list
+# cannot drift from what was compiled.
+idf_component_get_property(main_lib main COMPONENT_LIB)
+feckless_libversions(${main_lib} NAME "Jinxed Writer" LICENSE MIT)

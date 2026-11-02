@@ -40,7 +40,9 @@
 #include "doclog.h"
 #include "kbd.h"
 #include "rtc8130.h"
+#include "settings.h"
 #include "storage.h"
+#include "touch.h"
 
 static const char *TAG = "editor";
 
@@ -206,7 +208,9 @@ static void redraw(void)
      * there is nothing to type on. Spec section 5. */
     char st[48];
     snprintf(st, sizeof(st), "%lu words", (unsigned long)word_count());
-    gfx_draw_text(W - MARGIN_X - gfx_text_w(st, 2), s_status_y, st, 2, W, COL_DIM);
+    /* Right-aligned, leaving the corner to the gear. */
+    gfx_draw_text(W - 80 - gfx_text_w(st, 2), s_status_y, st, 2, W, COL_DIM);
+    settings_draw_gear();
     if (!kbd_present()) gfx_draw_text(MARGIN_X, s_status_y, "no keyboard", 2, W, COL_DIM);
     if (s_caps)        gfx_draw_text(MARGIN_X + 15 * GFX_GLYPH_W(2), s_status_y, "caps", 2, W, COL_DIM);
     if (!storage_present(STORAGE_SD)) {
@@ -467,6 +471,8 @@ void editor_run(void)
     TickType_t next_repeat = 0;
     bool had_kbd = kbd_present();
     bool had_card = storage_present(STORAGE_SD);
+    bool touch_down = false;
+    int  touch_x = 0, touch_y = 0;
 
     for (;;) {
         TickType_t wait = pdMS_TO_TICKS(500);
@@ -475,11 +481,17 @@ void editor_run(void)
             wait = (next_repeat > now) ? next_repeat - now : 0;
         }
         if (s_pending && wait > pdMS_TO_TICKS(250)) wait = pdMS_TO_TICKS(250);
+        /* The gear needs the panel polled; a key still wakes us at once. */
+        if (touch_present() && wait > pdMS_TO_TICKS(30)) wait = pdMS_TO_TICKS(30);
+
+        bool open_settings = false;
 
         kbd_event_t ev;
         bool dirty = false;
         if (kbd_get(&ev, wait)) {
-            if (ev.down) {
+            if (ev.down && ev.usage == KBD_COMMA && (ev.mods & KBD_MOD_GUI)) {
+                open_settings = true;       /* spec 7: from the keyboard too */
+            } else if (ev.down) {
                 dirty = key(ev.usage, ev.mods);
                 if (repeats(ev.usage)) {
                     held = ev.usage;
@@ -492,6 +504,21 @@ void editor_run(void)
         } else if (held) {
             dirty = key(held, held_mods);
             next_repeat = xTaskGetTickCount() + pdMS_TO_TICKS(REPEAT_RATE_MS);
+        }
+
+        /* A tap on the gear: down and up, both on it. */
+        int tx, ty;
+        const bool t_now = touch_get(&tx, &ty);
+        if (t_now && !touch_down) { touch_x = tx; touch_y = ty; }
+        if (!t_now && touch_down && settings_gear_hit(touch_x, touch_y)) open_settings = true;
+        touch_down = t_now;
+
+        if (open_settings) {
+            held = 0;
+            save_tick(true);            /* the card is current before we leave */
+            settings_page();
+            touch_down = false;
+            dirty = true;
         }
 
         /* Plugging or unplugging shows in the status line. */

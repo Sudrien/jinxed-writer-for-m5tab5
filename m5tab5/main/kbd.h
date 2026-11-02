@@ -74,6 +74,7 @@ char kbd_ascii(uint8_t usage, uint8_t mods, bool caps);
 #define KBD_ESCAPE      (0x29)
 #define KBD_BACKSPACE   (0x2A)
 #define KBD_TAB         (0x2B)
+#define KBD_COMMA       (0x36)
 #define KBD_CAPSLOCK    (0x39)
 #define KBD_HOME        (0x4A)
 #define KBD_PAGEUP      (0x4B)
