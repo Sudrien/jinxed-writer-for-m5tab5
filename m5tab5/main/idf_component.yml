@@ -18,3 +18,17 @@ dependencies:
     git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
     path: components/usb_host_uac
     version: "v0.8.7"
+  feckless_storage_handler:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_storage_handler
+    version: "v0.8.7"
+  # Required by name by feckless_storage_handler: the Tab5-fixed MSC
+  # driver, and FatFs patched for exFAT.
+  usb_host_msc:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/usb_host_msc
+    version: "v0.8.7"
+  fatfs:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/fatfs
+    version: "v0.8.7"

@@ -12,6 +12,13 @@
  * with a cursor in it, where every byte has to have a place on screen.
  * ark12's halfwidth cell is monospaced, so a line is a column count.
  *
+ * Saving: s_base is the text as the log on the card replays to. When
+ * typing pauses (or has gone on without a pause for SAVE_MAX_MS) the
+ * difference between s_base and s_text goes to doclog_append() as one
+ * changeset, on this task. The card is leased per flush and never held.
+ * With no card, or a failed write, s_text simply runs ahead of s_base
+ * and the next flush that lands carries everything since.
+ *
  * SPDX-License-Identifier: MIT
  */
 #include "editor.h"
@@ -21,13 +28,19 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <time.h>
+
+#include "esp_check.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "display.h"
+#include "doclog.h"
 #include "kbd.h"
+#include "rtc8130.h"
+#include "storage.h"
 
 static const char *TAG = "editor";
 
@@ -46,6 +59,13 @@ static const char *TAG = "editor";
 #define REPEAT_DELAY_MS (400)
 #define REPEAT_RATE_MS  (35)
 
+/* Flush to the card this long after the last keystroke, or after this
+ * long of typing without such a pause. */
+#define SAVE_PAUSE_MS   (1500)
+#define SAVE_MAX_MS     (10000)
+/* After a failed open, wait this long before trying the card again. */
+#define ATTACH_RETRY_MS (5000)
+
 static char     *s_text;        /* TEXT_MAX bytes, PSRAM */
 static uint32_t  s_len;
 static uint32_t  s_cur;
@@ -61,6 +81,17 @@ static int       s_top;         /* first line on screen */
 
 static int       s_cols, s_rows, s_line_h, s_status_y;
 static char     *s_row_buf;     /* one line, NUL-terminated, for gfx */
+
+/* Saving. See the top of the file. */
+static char     *s_base;        /* TEXT_MAX bytes, PSRAM */
+static uint32_t  s_base_len;
+static char      s_name[32];    /* "2026-11-02.md" */
+static bool      s_pending;     /* s_text may differ from s_base */
+static TickType_t s_last_edit, s_first_edit;
+static bool      s_save_failed;
+static bool      s_ever_open;
+static uint32_t  s_gen;
+static TickType_t s_attach_after;
 
 /* ---- layout ----------------------------------------------------------- */
 
@@ -178,8 +209,131 @@ static void redraw(void)
     gfx_draw_text(W - MARGIN_X - gfx_text_w(st, 2), s_status_y, st, 2, W, COL_DIM);
     if (!kbd_present()) gfx_draw_text(MARGIN_X, s_status_y, "no keyboard", 2, W, COL_DIM);
     if (s_caps)        gfx_draw_text(MARGIN_X + 15 * GFX_GLYPH_W(2), s_status_y, "caps", 2, W, COL_DIM);
+    if (!storage_present(STORAGE_SD)) {
+        gfx_draw_text(MARGIN_X + 21 * GFX_GLYPH_W(2), s_status_y, "no card", 2, W, COL_DIM);
+    } else if (s_save_failed) {
+        gfx_draw_text(MARGIN_X + 21 * GFX_GLYPH_W(2), s_status_y, "not saved", 2, W, COL_DIM);
+    }
 
     gfx_blit(0, H);
+}
+
+/* ---- saving ----------------------------------------------------------- */
+
+static bool rtc_now(int64_t *now)
+{
+    if (rtc8130_read(now)) return true;
+    *now = 0;
+    return false;
+}
+
+static void edited(void)
+{
+    const TickType_t now = xTaskGetTickCount();
+    if (!s_pending) s_first_edit = now;
+    s_pending = true;
+    s_last_edit = now;
+}
+
+/*
+ * Get the log open on whatever card is in the slot. At boot that is a
+ * plain recovery into the editor. Later -- a card that arrived after
+ * typing started, or a card swapped -- what the card holds is put
+ * before what is in RAM, so nothing on either side is lost: the next
+ * flush appends the RAM text to the card's document as one changeset.
+ * True when the screen needs redrawing.
+ */
+static bool attach(void)
+{
+    if (!storage_present(STORAGE_SD)) return false;
+    const uint32_t gen = storage_generation();
+    if (doclog_is_open() && gen == s_gen) return false;
+    if (xTaskGetTickCount() < s_attach_after) return false;
+
+    /* The same card back, untouched: carry on where we were. */
+    if (s_ever_open && doclog_verify() == ESP_OK) {
+        s_gen = gen;
+        return false;
+    }
+
+    int64_t now;
+    const bool now_ok = rtc_now(&now);
+    uint32_t rl = 0;
+    if (doclog_open(s_name, s_base, &rl, now, now_ok) != ESP_OK) {
+        ESP_LOGW(TAG, "cannot open the log for %s; retrying", s_name);
+        s_attach_after = xTaskGetTickCount() + pdMS_TO_TICKS(ATTACH_RETRY_MS);
+        return false;
+    }
+    s_base_len = rl;
+    s_gen = gen;
+
+    if (s_len == 0) {
+        /* Daily mode lands at the end of today's file (spec 5). */
+        memcpy(s_text, s_base, rl);
+        s_len = rl;
+        s_cur = s_len;
+    } else if (rl > 0 && (uint64_t)rl + s_len <= TEXT_MAX) {
+        if (s_ever_open) ESP_LOGW(TAG, "a different log on this card; keeping both texts");
+        memmove(s_text + rl, s_text, s_len);
+        memcpy(s_text, s_base, rl);
+        s_len += rl;
+        s_cur += rl;
+        edited();
+    } else if (rl > 0) {
+        /* Both will not fit. Keep RAM's; the card's text stays in its
+         * log's history, which the next flush builds on. */
+        ESP_LOGW(TAG, "card text and RAM text do not fit together; keeping RAM's");
+        edited();
+    } else if (s_len) {
+        edited();
+    }
+    s_ever_open = true;
+    return true;
+}
+
+/* Flush if typing has paused. True when the status line changed. */
+static bool save_tick(bool force)
+{
+    bool redraw_needed = attach();
+    if (!s_pending || !doclog_is_open()) return redraw_needed;
+
+    const TickType_t now = xTaskGetTickCount();
+    if (!force && now - s_last_edit < pdMS_TO_TICKS(SAVE_PAUSE_MS) &&
+        now - s_first_edit < pdMS_TO_TICKS(SAVE_MAX_MS)) {
+        return redraw_needed;
+    }
+
+    int64_t t;
+    const bool t_ok = rtc_now(&t);
+    const bool was_failed = s_save_failed;
+    if (doclog_append(s_base, s_base_len, s_text, s_len, t, t_ok) == ESP_OK) {
+        memcpy(s_base, s_text, s_len);
+        s_base_len = s_len;
+        s_pending = false;
+        s_save_failed = false;
+    } else {
+        /* Try again after another pause's worth. */
+        s_save_failed = true;
+        s_last_edit = now;
+        s_first_edit = now;
+    }
+    return redraw_needed || was_failed != s_save_failed;
+}
+
+/* The day's file name, from the RTC. Fixed for the session for now;
+ * midnight rollover (spec 5) is later. */
+static void pick_name(void)
+{
+    int64_t now;
+    if (!rtc_now(&now)) {
+        strcpy(s_name, "undated.md");
+        return;
+    }
+    const time_t tt = (time_t)now;
+    struct tm tm;
+    gmtime_r(&tt, &tm);
+    snprintf(s_name, sizeof(s_name), "%04d-%02d-%02d.md",
+             tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
 }
 
 /* ---- editing ---------------------------------------------------------- */
@@ -194,6 +348,7 @@ static void insert(const char *s, uint32_t n)
     memcpy(s_text + s_cur, s, n);
     s_len += n;
     s_cur += n;
+    edited();
 }
 
 static void erase(uint32_t from, uint32_t to)
@@ -203,6 +358,7 @@ static void erase(uint32_t from, uint32_t to)
     memmove(s_text + from, s_text + to, s_len - to);
     s_len -= to - from;
     s_cur = from;
+    edited();
 }
 
 static void vertical(int dl)
@@ -285,7 +441,9 @@ esp_err_t editor_init(void)
     s_text    = heap_caps_malloc(TEXT_MAX, MALLOC_CAP_SPIRAM);
     s_ls      = heap_caps_malloc((TEXT_MAX + 2) * sizeof(uint32_t), MALLOC_CAP_SPIRAM);
     s_le      = heap_caps_malloc((TEXT_MAX + 2) * sizeof(uint32_t), MALLOC_CAP_SPIRAM);
-    if (!s_text || !s_ls || !s_le) return ESP_ERR_NO_MEM;
+    s_base    = heap_caps_malloc(TEXT_MAX, MALLOC_CAP_SPIRAM);
+    if (!s_text || !s_ls || !s_le || !s_base) return ESP_ERR_NO_MEM;
+    ESP_RETURN_ON_ERROR(doclog_init(TEXT_MAX), TAG, "doclog");
 
     const int W = gfx_w();
     const int H = gfx_h();
@@ -297,6 +455,8 @@ esp_err_t editor_init(void)
     if (!s_row_buf) return ESP_ERR_NO_MEM;
 
     ESP_LOGI(TAG, "%d columns, %d rows, scale %d", s_cols, s_rows, EDITOR_SCALE);
+    pick_name();
+    attach();
     redraw();
     return ESP_OK;
 }
@@ -306,6 +466,7 @@ void editor_run(void)
     uint8_t  held = 0, held_mods = 0;   /* the key repeating, if any */
     TickType_t next_repeat = 0;
     bool had_kbd = kbd_present();
+    bool had_card = storage_present(STORAGE_SD);
 
     for (;;) {
         TickType_t wait = pdMS_TO_TICKS(500);
@@ -313,6 +474,7 @@ void editor_run(void)
             const TickType_t now = xTaskGetTickCount();
             wait = (next_repeat > now) ? next_repeat - now : 0;
         }
+        if (s_pending && wait > pdMS_TO_TICKS(250)) wait = pdMS_TO_TICKS(250);
 
         kbd_event_t ev;
         bool dirty = false;
@@ -335,6 +497,11 @@ void editor_run(void)
         /* Plugging or unplugging shows in the status line. */
         const bool has_kbd = kbd_present();
         if (has_kbd != had_kbd) { had_kbd = has_kbd; dirty = true; }
+        const bool has_card = storage_present(STORAGE_SD);
+        if (has_card != had_card) { had_card = has_card; dirty = true; }
+
+        /* Not while a key is held: the repeat is still typing. */
+        if (!held && save_tick(false)) dirty = true;
 
         if (dirty) redraw();
     }

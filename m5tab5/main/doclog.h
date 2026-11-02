@@ -1,0 +1,102 @@
+/*
+ * doclog.h -- the document as an operation log, mirrored on the SD card.
+ * Spec section 4.
+ *
+ * The log is the document. Each record is one changeset: a subset of
+ * Etherpad's Easysync with no attributes, no authors and no follow/merge
+ * -- old length, new length, a list of keep / delete / insert ops and a
+ * char bank holding the inserted bytes. Replaying every changeset from
+ * the empty text gives the text.
+ *
+ * Two twins, `<dir>/.<name>.h0` and `.h1`, each a complete log. Every
+ * append goes to h0 and is fsynced and closed, and only then to h1, so a
+ * power loss tears the tail of at most one. Recovery takes the longer
+ * valid prefix and copies its tail onto the other.
+ *
+ * FILE LAYOUT (little-endian)
+ *
+ *   header, 64 bytes
+ *     0   magic "JINXLOG\0"
+ *     8   u32 format version (1)
+ *     12  u32 doc id (random at creation)
+ *     16  u8  highlight mode (0 none, 1 markdown+math, 2 TeX)
+ *     20  i64 creation time (RTC epoch)
+ *     28  u32 last export hash (0: never exported)
+ *     60  u32 CRC-32C of bytes 0..59
+ *
+ *   records, back to back
+ *     0   u32 payload length
+ *     4   u8  type (1 changeset)
+ *     5   u8  flags (bit 0: time untrusted -- the RTC reported VLF)
+ *     6   u16 reserved, 0
+ *     8   u32 seq, monotonic from 1
+ *     12  i64 time (RTC epoch, advisory)
+ *     20  payload
+ *     ..  u32 CRC-32C over bytes 0..19 and the payload, seeded with the
+ *         previous record's CRC (the header's for the first)
+ *
+ *   then zeros: the file is grown in DOCLOG_GROW steps of zeros ahead of
+ *   the records, and recovery stops at the first length/CRC that fails,
+ *   which a zero length always does.
+ *
+ *   changeset payload
+ *     u32 old_len, u32 new_len, u16 n_ops, then n_ops x { u8 op, u32 n }
+ *     with op '=' keep, '-' delete, '+' insert, then the char bank. Text
+ *     after the last op is kept implicitly, as in Easysync.
+ *
+ * Not thread-safe: the editor is the only caller (spec section 6, "the
+ * editor is the only log writer").
+ *
+ * SPDX-License-Identifier: MIT
+ */
+#pragma once
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "esp_err.h"
+
+/* Where the logs live, and the twins' suffixes. */
+#ifndef DOCLOG_DIR
+#define DOCLOG_DIR      "/sd/jinxed"
+#endif
+#define DOCLOG_SUFFIX0  ".h0"
+#define DOCLOG_SUFFIX1  ".h1"
+
+/* Allocate buffers for texts of up to `cap` bytes. Once. */
+esp_err_t doclog_init(uint32_t cap);
+
+/*
+ * Open (recovering or creating) the log for `name` in DOCLOG_DIR, and
+ * replay it into `text` (cap bytes), setting *len. A document with no log
+ * but an export file `DOCLOG_DIR/name` is imported as one insert.
+ * `now`/`now_ok` timestamp a creation or import.
+ */
+esp_err_t doclog_open(const char *name, char *text, uint32_t *len,
+                      int64_t now, bool now_ok);
+
+bool doclog_is_open(void);
+
+/*
+ * Append the changeset taking `old` to `neu` to both twins. `old` must be
+ * the text the log replays to (the last appended or opened text). No-op
+ * when they are equal. On failure nothing is assumed written; call again
+ * with the same `old` later.
+ */
+esp_err_t doclog_append(const char *old, uint32_t old_len,
+                        const char *neu, uint32_t new_len,
+                        int64_t now, bool now_ok);
+
+/*
+ * After the card came and went: is the log on the card still the one
+ * this module last wrote? ESP_OK yes; ESP_ERR_NOT_FOUND no log there;
+ * ESP_ERR_INVALID_STATE some other log (a different card or doc).
+ * Repairs a torn twin on the way, as open does.
+ */
+esp_err_t doclog_verify(void);
+
+/* Forget the open log. Files are untouched. */
+void doclog_close(void);
+
+/* The last seq written or recovered. */
+uint32_t doclog_seq(void);
