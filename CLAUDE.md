@@ -195,3 +195,4 @@ not be updated.
 - 0003 CLAUDE.md: the rules for patches, adapted from Defeatist's
 - 0004 Manifest: feckless-libs v0.9.1, and feckless_network_handler
 - 0005 Settings: a test email button, and Wi-Fi for sends
+- 0006 sdkconfig: three SNTP servers; ALLOW_EXT_MEM left to its default
