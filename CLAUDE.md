@@ -206,3 +206,4 @@ not be updated.
 - 0006 sdkconfig: three SNTP servers; ALLOW_EXT_MEM left to its default
 - 0007 Sender: the task's stack in internal RAM, since it reads flash
 - 0008 main: the === Jinxed Writer === version line
+- 0009 Spec: the shortcuts, what exists and what is planned

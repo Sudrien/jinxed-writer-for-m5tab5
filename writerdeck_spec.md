@@ -99,7 +99,50 @@ Which mode the device runs in is chosen on the **settings page** (section 7) and
 - **Highlighter:** line-based tokenizer on visible lines only, with small carried state for open `$$` blocks and code fences, and a bounded look-back for multi-line constructs. Muted palette: 2-3 dim tones (structure, math/commands, comments).
 - **Math rules (Pandoc style):** an opening `$` must be followed by a non-space; a closing `$` must be preceded by a non-space and not followed by a digit; `\$` is a literal dollar. Inline `$...$` never crosses a line. An unmatched `$` is plain text. Backtick code spans and fences win over math.
 
-**Shortcuts:** the modifier for app shortcuts is the **GUI key** (Windows key on PC keyboards, Command on Mac keyboards). Both send the same HID modifier, so handle them identically. Initial set (proposal, to be confirmed): GUI+Left/Right (line start/end), GUI+Up/Down (doc start/end), GUI+Backspace (delete line), GUI+A/C/X/V/Z/Shift+Z. Do not assign any mode-switch hotkey.
+**Shortcuts.** The modifier for app shortcuts is the **GUI key** (Windows key on PC keyboards, Command on Mac keyboards). Both send the same HID modifier, so they are handled identically. **Ctrl** and **Alt** (Option on a Mac keyboard: the same HID modifier) are the word-level modifiers. A Mac keyboard needs no separate bindings, only the Mac habits below. Do not assign any mode-switch hotkey.
+
+*In the editor, today:*
+
+| Keys | Does |
+|---|---|
+| Arrows | Move; Up/Down keep their column |
+| Home / End | Line start / end |
+| PageUp / PageDown | Move one screenful |
+| Backspace / Delete | Delete before / after the cursor |
+| Tab | Insert four spaces |
+| Caps Lock | Toggle caps (shown in the status line) |
+| GUI+Left / Right | Line start / end |
+| GUI+Up / Down | Document start / end |
+| GUI+Backspace | Delete the whole line |
+| GUI+, | Open the settings page |
+
+Held keys repeat. Ctrl and Alt chords type nothing.
+
+*On the settings page, today:* Up/Down scroll; PageUp/PageDown scroll a screen; Home/End and GUI+Up/Down jump to the top and bottom; Enter opens the email form; GUI+T sends a test email; Esc or GUI+, closes the page. In the email form: Tab / Shift+Tab or Up / Down move between fields, Enter saves, Esc cancels.
+
+*Planned, not yet implemented*, modelled on MS Word and on the Mac text-field habits. Each row is "Word / Mac":
+
+| Does | Keys |
+|---|---|
+| Previous / next word | Ctrl+Left / Right, and Alt+Left / Right |
+| Previous / next paragraph | Ctrl+Up / Down, and Alt+Up / Down |
+| Delete previous / next word | Ctrl+Backspace / Delete, and Alt+Backspace / Delete |
+| Extend the selection | Shift with any movement above (by character, word, line, document) |
+| Select all, copy, cut, paste | GUI+A / C / X / V |
+| Undo / redo | GUI+Z / GUI+Shift+Z; Ctrl+Y also redoes |
+| Save now (flush the log, then export) | GUI+S |
+| Find, next, previous | GUI+F, then F3 / Shift+F3 |
+| Go to line | GUI+G |
+| Text scale up / down | GUI+= / GUI+- (Word: Ctrl+] / Ctrl+[) |
+| Send now (file mode's manual send) | GUI+Enter |
+| Remove up to four leading spaces | Shift+Tab |
+
+*Decisions recorded.*
+- For letter shortcuts, **Ctrl is accepted wherever GUI is**, so a PC keyboard's Word habits (Ctrl+Z, Ctrl+S, Ctrl+F) work. For the arrow keys the two differ on purpose: GUI means the whole line or document, as on a Mac; Ctrl and Alt mean a word or paragraph, as in Word.
+- **Undo never removes anything from the log** (section 4). It appends a new changeset that reverses the last one, so every word typed stays in the history.
+- **Selection comes first.** Copy, cut, paste, the Shift movements and Word-style delete-word all rest on the editor having a selection, and a RAM clipboard. Until then those rows stay planned.
+- **Not carried over from Word:** bold, italic, underline, alignment, styles, page breaks, tables, spell check, print. The text is plain.
+- Emacs-style Ctrl+A / Ctrl+E (line start / end on a Mac) are optional and not planned; Ctrl+A would collide with select-all on a PC keyboard.
 
 ## 6. Email
 
