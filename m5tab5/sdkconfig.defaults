@@ -68,9 +68,3 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 # 6.1 makes the extra initialisers an error rather than a warning. NTP is
 # off here (sender.c's hooks), but wifi.c is compiled whatever.
 CONFIG_LWIP_SNTP_MAX_SERVERS=3
-
-# The send task's stack is in PSRAM. That needs
-# CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM, which is on by default with
-# SPIRAM; it is not set here because the bootloader's configure pass,
-# which has no SPIRAM, notes it as "not visible". sender.c's #error is
-# the check.

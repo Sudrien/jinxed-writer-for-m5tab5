@@ -145,6 +145,14 @@ function puts on the stack before calling it from a task sized for our
 own code. This matters first for the send task (spec section 6): TLS
 handshakes are deep.
 
+**A task that touches flash has its stack in internal RAM.** Reading or
+writing flash -- NVS, a partition, and Mbed TLS 4's PSA key storage,
+which is NVS -- disables the cache, and a stack in PSRAM cannot be used
+while it is off: IDF asserts in cache_utils.c
+(`esp_task_stack_is_sane_cache_disabled`). 0005's send task did this on
+its first NVS read (0007). A PSRAM stack is for a task that provably
+never reaches flash, and "provably" includes every library it calls.
+
 **Buffers go in PSRAM unless something needs them internal.** The Wi-Fi
 radio's DMA pool comes out of internal RAM, and every internal
 allocation added to main comes out of it. A large heap buffer is
@@ -196,3 +204,4 @@ not be updated.
 - 0004 Manifest: feckless-libs v0.9.1, and feckless_network_handler
 - 0005 Settings: a test email button, and Wi-Fi for sends
 - 0006 sdkconfig: three SNTP servers; ALLOW_EXT_MEM left to its default
+- 0007 Sender: the task's stack in internal RAM, since it reads flash

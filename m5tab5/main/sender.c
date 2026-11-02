@@ -1,11 +1,14 @@
 /*
  * sender.c -- the send task. See sender.h.
  *
- * The task's stack is in PSRAM and its control block in internal RAM
- * (DRAM_ATTR): internal RAM is the radio's DMA pool, and a 16 KB stack
- * there is 16 KB the C6's transport cannot have. A FreeRTOS control block
- * cannot live in PSRAM, so that one small part stays internal. Made once
- * and never deleted, so neither is ever freed.
+ * The task's stack is in INTERNAL RAM, though internal RAM is the radio's
+ * DMA pool. 0005 put it in PSRAM, and the first test send asserted in
+ * spi_flash's cache_utils.c (esp_task_stack_is_sane_cache_disabled):
+ * mailcfg_load() reads NVS, a flash read disables the cache, and a stack
+ * in PSRAM cannot be touched while the cache is off. NVS is not the only
+ * way this task reaches flash -- Mbed TLS 4's PSA key storage is NVS too
+ * -- so moving the one read elsewhere would leave the next one. 16 KB,
+ * made once, never freed.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -16,7 +19,6 @@
 
 #include "esp_attr.h"
 #include "esp_err.h"
-#include "sdkconfig.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -33,9 +35,6 @@
 
 static const char *TAG = "sender";
 
-#if !CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
-#error "sender.c puts its task stack in PSRAM and needs CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y"
-#endif
 
 /* Above MAILSEND_MIN_STACK for our own frames and the logging. */
 #define SEND_STACK      (MAILSEND_MIN_STACK + 4096)
@@ -166,7 +165,8 @@ esp_err_t sender_init(void)
     static const feckless_net_hooks_t hooks = { .wifi_enabled = radio_wanted };
     feckless_net_set_hooks(&hooks);
 
-    StackType_t *stack = heap_caps_malloc(SEND_STACK, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    /* Internal: this task reads flash (see the top of the file). */
+    StackType_t *stack = heap_caps_malloc(SEND_STACK, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!stack) return ESP_ERR_NO_MEM;
     s_task = xTaskCreateStatic(send_task, "send", SEND_STACK, NULL, SEND_PRIO, stack, &s_tcb);
     return s_task ? ESP_OK : ESP_FAIL;
