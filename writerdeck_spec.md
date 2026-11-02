@@ -202,3 +202,4 @@ On-device TeX typesetting, PDF export, note-mode hotkeys, a Wi-Fi AP or web UI, 
 - Dark mode, light mode
 - configurable font scale (current size is smallest, this is a retina display)
 - fake bold and italic & strikethrough for font, markdown basics
+- can apple keybords be detected form usb descriptor? tells which shortcut set to use
