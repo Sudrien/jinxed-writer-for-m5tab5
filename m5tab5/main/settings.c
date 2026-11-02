@@ -28,6 +28,7 @@
 #include "libversions.h"
 #include "mailcfg.h"
 #include "mailform.h"
+#include "sender.h"
 
 static const char *TAG = "settings";
 
@@ -218,6 +219,7 @@ static bool email_form(void)
 /* Positions in content coordinates, from layout(). */
 typedef struct {
     int edit_y, forget_y;       /* buttons; forget_y < 0 when not shown */
+    int test_y;                 /* the test button; < 0 when not shown */
     int libs_y;                 /* first library row */
     int total_h;
 } page_t;
@@ -249,7 +251,7 @@ static int lib_lh(void) { return GFX_GLYPH_H(SCALE) + 10; }
  */
 static page_t layout(bool draw, int scroll)
 {
-    page_t p = { .forget_y = -1 };
+    page_t p = { .forget_y = -1, .test_y = -1 };
     const int W = gfx_w();
     const int off = HEAD_H - scroll;
     int y = 32;
@@ -290,6 +292,21 @@ static page_t layout(bool draw, int scroll)
                          s_p.forget_armed ? COL_BAD : COL_BTN);
     }
     y += BTN_H + 16;
+    {
+        /* The test: what it is doing, or how the last one went. Shown
+         * whatever the account's state -- "no email configured" is a
+         * result too (spec 6's messages). */
+        char st[160];
+        const bool busy = sender_status(st, sizeof st);
+        p.test_y = y;
+        if (draw) button(PAD, off + y, bw, BTN_H, busy ? "Sending..." : "Send test email",
+                         busy ? COL_GO : COL_BTN);
+        if (draw && st[0]) {
+            gfx_draw_text(PAD + bw + PAD / 2, off + y + (BTN_H - TEXT_H) / 2, st, SCALE,
+                          W - 2 * PAD - bw - PAD / 2, COL_DIM);
+        }
+        y += BTN_H + 16;
+    }
     TXT(y, "Kept in NVS on this device, never on the card.", COL_DIM);
     y += LINE_H + SECTION_GAP;
 
@@ -346,6 +363,7 @@ void settings_page(void)
     input_reset();
     page_t p = layout(false, 0);
     bool redraw = true;
+    uint32_t seen_gen = sender_gen();
 
     for (;;) {
         if (redraw) {
@@ -357,6 +375,8 @@ void settings_page(void)
         const input_t in = input_poll();
         const int view = gfx_h() - HEAD_H;
         int want = scroll;
+        /* The send task moved on: show it. */
+        if (sender_gen() != seen_gen) { seen_gen = sender_gen(); redraw = true; }
 
         if (in.kind == IN_KEY) {
             const bool gui = (in.mods & KBD_MOD_GUI) != 0;
@@ -375,6 +395,9 @@ void settings_page(void)
                 load_mail();
                 redraw = true;
                 break;
+            case KBD_T:         /* GUI+T: send a test (spec 5's GUI shortcuts) */
+                if (gui) sender_test();
+                break;
             default: break;
             }
         } else if (in.kind == IN_DRAG) {
@@ -386,7 +409,9 @@ void settings_page(void)
             if (in.y >= HEAD_H) {
                 const int cy = in.y - HEAD_H + scroll;  /* content y */
                 const int bw = (gfx_w() - 2 * PAD - PAD / 2) / 2;
-                if (in_rect(in.x, cy, PAD, p.edit_y, bw, BTN_H)) {
+                if (p.test_y >= 0 && in_rect(in.x, cy, PAD, p.test_y, bw, BTN_H)) {
+                    sender_test();      /* refused while one runs; the label says so */
+                } else if (in_rect(in.x, cy, PAD, p.edit_y, bw, BTN_H)) {
                     if (email_form()) ESP_LOGI(TAG, "email account saved");
                     load_mail();
                 } else if (p.forget_y >= 0 &&

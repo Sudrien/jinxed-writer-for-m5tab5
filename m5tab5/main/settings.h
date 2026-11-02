@@ -7,7 +7,9 @@
  *
  *   Email (SMTP)   the outgoing account, feckless_mail's mailcfg in NVS;
  *                  Edit opens mailform full-window, typed on the USB
- *                  keyboard or tapped; Forget clears it (tap twice)
+ *                  keyboard or tapped; Forget clears it (tap twice);
+ *                  Send test email (or GUI+T) sends one through the
+ *                  send task, its progress and result beside the button
  *   Libraries      every library this build was made from, its version
  *                  and licence, from feckless_libversions' table
  *

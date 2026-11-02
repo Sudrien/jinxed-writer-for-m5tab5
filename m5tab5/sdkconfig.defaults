@@ -40,3 +40,29 @@ CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_MAX_LFN=255
 CONFIG_FATFS_API_ENCODING_UTF_8=y
+
+# ---------------------------------------------------------------------------
+# Wi-Fi through the C6, for sends (main/sender.c). From Defeatist's
+# sdkconfig.defaults, where each is explained at length; in short:
+#
+# wifi.c calls esp_hosted_init() itself, after powering the C6.
+CONFIG_ESP_HOSTED_AUTO_CALL_INIT_BEFORE_APP_MAIN=n
+# The Tab5's preset. A board's wiring is not a menu choice.
+CONFIG_ESP32P4_TAB5_C6_BOARD=y
+# The C6's EN is GPIO15. The one pin wifi.c cannot set from code.
+CONFIG_ESP_HOSTED_HOST_RESET_GPIO=15
+
+# TLS and lwIP buffers in PSRAM: internal RAM is the radio's DMA pool.
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# The ECDSA engine is not usable on chip rev v1.3: each signature is a
+# failed try at it, an error line, then software anyway. Straight to
+# software.
+CONFIG_MBEDTLS_HARDWARE_ECDSA_SIGN=n
+CONFIG_MBEDTLS_HARDWARE_ECDSA_VERIFY=n
+# The server's certificate is checked against IDF's CA bundle (mailsend).
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+
+# The send task's stack is in PSRAM (sender.c checks this).
+CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y

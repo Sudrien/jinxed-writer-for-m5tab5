@@ -15,6 +15,7 @@
 #include "usbhost.h"
 
 #include "display.h"
+#include "sender.h"
 #include "editor.h"
 #include "kbd.h"
 
@@ -52,6 +53,11 @@ void app_main(void)
     };
     storage_io_init();
     ESP_ERROR_CHECK(storage_init(&usb));
+    /* The network and the send task: the Ethernet adapter's class goes
+     * on the port too, and the radio worker after storage (wifi.h: they
+     * share the SDMMC host). Nothing is powered until a send asks. Not
+     * fatal: the device is a writer first. */
+    if (sender_init() != ESP_OK) ESP_LOGW(TAG, "no send task; email is off");
     ESP_ERROR_CHECK(kbd_init());
     usbhost_start();
 
