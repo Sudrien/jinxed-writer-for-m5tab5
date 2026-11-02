@@ -193,3 +193,4 @@ not be updated.
 - 0001 Save to SD: the document as a mirrored Easysync-subset log
 - 0002 Settings: a gear, a scrolling page, Email (SMTP) and Libraries
 - 0003 CLAUDE.md: the rules for patches, adapted from Defeatist's
+- 0004 Manifest: feckless-libs v0.9.1, and feckless_network_handler
