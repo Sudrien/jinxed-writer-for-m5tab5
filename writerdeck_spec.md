@@ -194,3 +194,11 @@ On-device TeX typesetting, PDF export, note-mode hotkeys, a Wi-Fi AP or web UI, 
 
 - `reset_probe`: checks which memory survives which reset. Result: none does.
 - `rtc_wake_probe`: arms an RX8130 timer or alarm, then powers off via `PWROFF_PULSE`. Result: alarm works; timer does not wake the board. Its register definitions are a working reference for the alarm code.
+
+
+## Sort this and elaborate
+- SymSpell (maybe) as a manually triggered spellcheck. No wavy red lines as you type, instead there's a dedicated half screen format. Dictionary is probably large enough to put on the sd card. 
+- Color for syntax highlighting and footer, no low contrast grays. Highlight background can be lower contrast.
+- Dark mode, light mode
+- configurable font scale (current size is smallest, this is a retina display)
+- fake bold and italic & strikethrough for font, markdown basics
