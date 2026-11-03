@@ -197,7 +197,7 @@ On-device TeX typesetting, PDF export, note-mode hotkeys, a Wi-Fi AP or web UI, 
 
 
 ## Sort this and elaborate
-- SymSpell (maybe) as a manually triggered spellcheck. No wavy red lines as you type, instead there's a dedicated half screen format. Dictionary is probably large enough to put on the sd card. 
+- SymSpell (maybe) as a manually triggered spellcheck. No wavy red lines as you type, instead there's a dedicated half screen format. Dictionary is probably large enough to put on the sd card. https://github.com/sumanpokhrel-11/symspell-c99
 - Color for syntax highlighting and footer, no low contrast grays. Highlight background can be lower contrast.
 - Dark mode, light mode
 - configurable font scale (current size is smallest, this is a retina display)
