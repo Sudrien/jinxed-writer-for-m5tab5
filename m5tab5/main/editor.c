@@ -19,6 +19,10 @@
  * With no card, or a failed write, s_text simply runs ahead of s_base
  * and the next flush that lands carries everything since.
  *
+ * Spelling (spell.h) is checked only when asked, F7 or GUI+semicolon:
+ * the screen splits, the text above with the word marked, the word and
+ * what it might be below. Changes are ordinary edits, logged like typing.
+ *
  * SPDX-License-Identifier: MIT
  */
 #include "editor.h"
@@ -41,6 +45,7 @@
 #include "kbd.h"
 #include "rtc8130.h"
 #include "settings.h"
+#include "spell.h"
 #include "storage.h"
 #include "touch.h"
 
@@ -145,15 +150,17 @@ static uint32_t line_next(int l)
     return (l + 1 < s_lines) ? s_ls[l + 1] : s_len + 1;
 }
 
-/* The line the cursor is on. A position belongs to the line it starts
+/* The line position p is on. A position belongs to the line it starts
  * before, except the very end of the text, which is on the last line. */
-static int cursor_line(void)
+static int pos_line(uint32_t p)
 {
     for (int l = 0; l < s_lines; l++) {
-        if (s_cur >= s_ls[l] && s_cur < line_next(l)) return l;
+        if (p >= s_ls[l] && p < line_next(l)) return l;
     }
     return s_lines - 1;
 }
+
+static int cursor_line(void) { return pos_line(s_cur); }
 
 /* The furthest the cursor can sit on line l. On a line cut mid-word the
  * end is the next line's start, which belongs to the next line. */
@@ -178,6 +185,29 @@ static uint32_t word_count(void)
     return n;
 }
 
+/* `rows` lines of text from line `top`, with s_text[hl_a, hl_b) marked
+ * behind. After layout(). */
+static void draw_rows(int top, int rows, uint32_t hl_a, uint32_t hl_b)
+{
+    const int W = gfx_w();
+    const int gw = GFX_GLYPH_W(EDITOR_SCALE);
+    for (int r = 0; r < rows && top + r < s_lines; r++) {
+        const int l = top + r;
+        const int y = MARGIN_Y + r * s_line_h;
+        const uint32_t a = hl_a > s_ls[l] ? hl_a : s_ls[l];
+        const uint32_t b = hl_b < s_le[l] ? hl_b : s_le[l];
+        if (a < b) {
+            gfx_fill_rect(MARGIN_X + (int)(a - s_ls[l]) * gw - EDITOR_SCALE, y - EDITOR_SCALE,
+                          (int)(b - a) * gw + EDITOR_SCALE,
+                          GFX_GLYPH_H(EDITOR_SCALE) + 2 * EDITOR_SCALE, COL_BTN);
+        }
+        const uint32_t n = s_le[l] - s_ls[l];
+        memcpy(s_row_buf, s_text + s_ls[l], n);
+        s_row_buf[n] = '\0';
+        gfx_draw_text(MARGIN_X, y, s_row_buf, EDITOR_SCALE, W - MARGIN_X, COL_TEXT);
+    }
+}
+
 static void redraw(void)
 {
     layout();
@@ -189,15 +219,7 @@ static void redraw(void)
     const int H = gfx_h();
     const int gw = GFX_GLYPH_W(EDITOR_SCALE);
     gfx_fill_rect(0, 0, W, H, COL_BG);
-
-    for (int r = 0; r < s_rows && s_top + r < s_lines; r++) {
-        const int l = s_top + r;
-        const uint32_t n = s_le[l] - s_ls[l];
-        memcpy(s_row_buf, s_text + s_ls[l], n);
-        s_row_buf[n] = '\0';
-        gfx_draw_text(MARGIN_X, MARGIN_Y + r * s_line_h, s_row_buf, EDITOR_SCALE,
-                      W - MARGIN_X, COL_TEXT);
-    }
+    draw_rows(s_top, s_rows, 0, 0);
 
     /* A bar before the character, as tall as the glyph. */
     const int cx = MARGIN_X + (int)(s_cur - s_ls[cl]) * gw;
@@ -438,6 +460,199 @@ static bool repeats(uint8_t usage)
     return usage != KBD_CAPSLOCK && usage != KBD_ESCAPE && usage < 0xE0;
 }
 
+/* ---- spelling -------------------------------------------------------- */
+
+/* Lines of text shown above the word being checked. */
+#define SPELL_ABOVE     (1)
+#define SPELL_SCALE     (EDITOR_SCALE)
+#define SPELL_LEGEND    "1-9 or Enter: change   Tab: skip   I: ignore all   A: add   Esc: done"
+
+typedef struct {
+    uint32_t     a, b;          /* the word, when there is one */
+    const char  *msg;           /* or this, instead of a word */
+    const char  *note;          /* beside the word: what last went wrong */
+    spell_word_t sugg[SPELL_SUGG_MAX];
+    int          n_sugg, sel;
+} spell_view_t;
+
+/* Suggestions that fit the pane. */
+static int spell_fit(void)
+{
+    const int H = gfx_h();
+    const int pane = MARGIN_Y + (s_rows / 2) * s_line_h + 8;
+    const int row = GFX_GLYPH_H(SPELL_SCALE) + 3 * SPELL_SCALE;
+    int n = (H - pane - 24 - row - 16 - GFX_GLYPH_H(2) - 16) / row;
+    if (n > SPELL_SUGG_MAX) n = SPELL_SUGG_MAX;
+    return n < 1 ? 1 : n;
+}
+
+static void spell_draw(const spell_view_t *v)
+{
+    layout();
+    const int W = gfx_w();
+    const int H = gfx_h();
+    const int rows = s_rows / 2;
+    const int pane = MARGIN_Y + rows * s_line_h + 8;
+    const int row = GFX_GLYPH_H(SPELL_SCALE) + 3 * SPELL_SCALE;
+    gfx_fill_rect(0, 0, W, H, COL_BG);
+
+    /* Above: the text around the word, or around the cursor. */
+    const bool word = !v->msg;
+    int top = pos_line(word ? v->a : s_cur) - SPELL_ABOVE;
+    if (top > s_lines - rows) top = s_lines - rows;
+    if (top < 0) top = 0;
+    draw_rows(top, rows, word ? v->a : 0, word ? v->b : 0);
+
+    /* Below: the word and what it might be, or a message. */
+    gfx_fill_rect(0, pane, W, H - pane, COL_HEAD);
+    gfx_fill_rect(0, pane, W, 2, COL_RULE);
+    int y = pane + 24;
+    if (!word) {
+        gfx_draw_text(MARGIN_X, y, v->msg, SPELL_SCALE, W - MARGIN_X, COL_TEXT);
+        gfx_draw_text(MARGIN_X, y + row, "Any key to close.", 2, W - MARGIN_X, COL_DIM);
+        gfx_blit(0, H);
+        return;
+    }
+    char w[SPELL_WORD_MAX + 1];
+    const uint32_t n = v->b - v->a;
+    memcpy(w, s_text + v->a, n);
+    w[n] = '\0';
+    gfx_draw_text(MARGIN_X, y, w, SPELL_SCALE, W - MARGIN_X, COL_BAD);
+    if (v->note) {
+        gfx_draw_text(MARGIN_X + ((int)n + 2) * GFX_GLYPH_W(SPELL_SCALE),
+                      y + GFX_GLYPH_H(SPELL_SCALE) - GFX_GLYPH_H(2), v->note, 2, W - MARGIN_X, COL_DIM);
+    }
+    y += row + 16;
+    if (v->n_sugg == 0) {
+        gfx_draw_text(MARGIN_X, y, "no suggestions", SPELL_SCALE, W - MARGIN_X, COL_DIM);
+    }
+    for (int i = 0; i < v->n_sugg; i++) {
+        const int yy = y + i * row;
+        if (i == v->sel) {
+            gfx_fill_rect(MARGIN_X - 12, yy - SPELL_SCALE, W - 2 * MARGIN_X + 24,
+                          GFX_GLYPH_H(SPELL_SCALE) + 2 * SPELL_SCALE, COL_BTN);
+        }
+        char line[SPELL_WORD_MAX + 8];
+        snprintf(line, sizeof(line), "%d  %s", i + 1, v->sugg[i]);
+        gfx_draw_text(MARGIN_X, yy, line, SPELL_SCALE, W - MARGIN_X, COL_TEXT);
+    }
+    gfx_draw_text(MARGIN_X, H - 16 - GFX_GLYPH_H(2), SPELL_LEGEND, 2, W - MARGIN_X, COL_DIM);
+    gfx_blit(0, H);
+}
+
+/*
+ * The next misspelling from `*at`, going round to the top once and
+ * stopping at `stop`. False when there are no more, or no dictionary
+ * (v->msg says which).
+ */
+static bool spell_find(spell_view_t *v, uint32_t *at, bool *wrapped, uint32_t stop, bool any)
+{
+    for (;;) {
+        /* A card swapped mid-check unloads it; the new card's is used. */
+        if (!spell_load()) {
+            v->msg = "No dictionary: jinxed/spell/" SPELL_DICT " on the card.";
+            return false;
+        }
+        uint32_t a, b;
+        const bool got = spell_next_word(s_text, s_len, *at, &a, &b);
+        if (!got || (*wrapped && a >= stop)) {
+            if (got || *wrapped) {
+                v->msg = any ? "Spelling checked." : "No misspellings found.";
+                return false;
+            }
+            *wrapped = true;
+            *at = 0;
+            continue;
+        }
+        *at = b;
+        if (spell_known(s_text + a, b - a)) continue;
+        v->a = a;
+        v->b = b;
+        v->msg = NULL;
+        v->note = NULL;
+        v->sel = 0;
+        v->n_sugg = spell_suggest(s_text + a, b - a, v->sugg, spell_fit());
+        for (int i = 0; i < v->n_sugg; i++) spell_case_like(s_text + a, b - a, v->sugg[i]);
+        return true;
+    }
+}
+
+/* The check, from the word at the cursor round to it again. Runs on the
+ * editor's task, as settings_page() does, until closed. */
+static void spell_view(void)
+{
+    static spell_view_t v;          /* the suggestions are 400 bytes */
+    memset(&v, 0, sizeof(v));
+    uint32_t a0, b0;
+    uint32_t stop = spell_next_word(s_text, s_len, s_cur, &a0, &b0) ? a0 : s_len;
+    uint32_t at = s_cur;
+    bool wrapped = false, any = false;
+
+    bool open = spell_find(&v, &at, &wrapped, stop, any);
+    if (open) { s_cur = v.a; any = true; }
+    spell_draw(&v);
+
+    for (;;) {
+        kbd_event_t ev;
+        if (!kbd_get(&ev, pdMS_TO_TICKS(250))) {
+            save_tick(false);           /* changes are saved as typing is */
+            continue;
+        }
+        if (!ev.down) continue;
+        if (!open) break;               /* the message: any key closes */
+
+        const bool gui = (ev.mods & (KBD_MOD_GUI | KBD_MOD_CTRL)) != 0;
+        const bool plain = (ev.mods & (KBD_MOD_GUI | KBD_MOD_CTRL | KBD_MOD_ALT)) == 0;
+        int pick = -1;
+        bool next = false;
+        switch (ev.usage) {
+        case KBD_ESCAPE:
+        case KBD_F7:        goto out;
+        case KBD_SEMICOLON: if (gui) goto out; break;
+        case KBD_UP:        if (v.sel > 0) v.sel--; break;
+        case KBD_DOWN:      if (v.sel + 1 < v.n_sugg) v.sel++; break;
+        case KBD_ENTER:
+        case KBD_KP_ENTER:  if (v.n_sugg) pick = v.sel; else next = true; break;
+        case KBD_TAB:
+        case KBD_SPACE:
+        case KBD_RIGHT:     next = true; break;
+        case KBD_I:
+            if (plain) { spell_ignore(s_text + v.a, v.b - v.a); next = true; }
+            break;
+        case KBD_A:
+            if (plain) {
+                if (spell_add(s_text + v.a, v.b - v.a)) next = true;
+                else v.note = "not saved to the card";
+            }
+            break;
+        default:
+            if (plain && ev.usage >= KBD_1 && ev.usage < KBD_1 + v.n_sugg) pick = ev.usage - KBD_1;
+            break;
+        }
+
+        if (pick >= 0) {
+            const uint32_t n = (uint32_t)strlen(v.sugg[pick]);
+            const uint32_t old = v.b - v.a;
+            if (s_len - old + n <= TEXT_MAX) {
+                erase(v.a, v.b);        /* the cursor goes to a */
+                insert(v.sugg[pick], n);
+                if (v.a < stop) stop = stop - old + n;
+                at = v.a + n;
+                next = true;
+            } else {
+                v.note = "the text is full";
+            }
+        }
+        if (next) {
+            open = spell_find(&v, &at, &wrapped, stop, any);
+            if (open) s_cur = v.a;
+        }
+        spell_draw(&v);
+    }
+out:
+    s_want_col = -1;
+}
+
 /* ---- the loop --------------------------------------------------------- */
 
 esp_err_t editor_init(void)
@@ -485,12 +700,16 @@ void editor_run(void)
         if (touch_present() && wait > pdMS_TO_TICKS(30)) wait = pdMS_TO_TICKS(30);
 
         bool open_settings = false;
+        bool open_spell = false;
 
         kbd_event_t ev;
         bool dirty = false;
         if (kbd_get(&ev, wait)) {
             if (ev.down && ev.usage == KBD_COMMA && (ev.mods & KBD_MOD_GUI)) {
                 open_settings = true;       /* spec 7: from the keyboard too */
+            } else if (ev.down && (ev.usage == KBD_F7 || (ev.usage == KBD_SEMICOLON &&
+                                   (ev.mods & (KBD_MOD_GUI | KBD_MOD_CTRL))))) {
+                open_spell = true;          /* spec 5: Word's F7, the Mac's Cmd+; */
             } else if (ev.down) {
                 dirty = key(ev.usage, ev.mods);
                 if (repeats(ev.usage)) {
@@ -517,6 +736,13 @@ void editor_run(void)
             held = 0;
             save_tick(true);            /* the card is current before we leave */
             settings_page();
+            touch_down = false;
+            dirty = true;
+        }
+
+        if (open_spell) {
+            held = 0;
+            spell_view();
             touch_down = false;
             dirty = true;
         }

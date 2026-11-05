@@ -207,3 +207,4 @@ not be updated.
 - 0007 Sender: the task's stack in internal RAM, since it reads flash
 - 0008 main: the === Jinxed Writer === version line
 - 0009 Spec: the shortcuts, what exists and what is planned
+- 0010 Spelling: SymSpell on demand, its index on the card

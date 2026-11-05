@@ -98,6 +98,10 @@ Which mode the device runs in is chosen on the **settings page** (section 7) and
 - **Highlighting has three modes:** none, markdown with `$math$`, TeX. Default for a new note is **none**. The mode comes from the document's extension when the log is created (`.md`, `.tex`, otherwise none), is stored in the log header, and is changeable from the settings page. **There are no hotkeys for switching modes yet.** Leave a clear hook for adding one later.
 - **Highlighter:** line-based tokenizer on visible lines only, with small carried state for open `$$` blocks and code fences, and a bounded look-back for multi-line constructs. Muted palette: 2-3 dim tones (structure, math/commands, comments).
 - **Math rules (Pandoc style):** an opening `$` must be followed by a non-space; a closing `$` must be preceded by a non-space and not followed by a digit; `\$` is a literal dollar. Inline `$...$` never crosses a line. An unmatched `$` is plain text. Backtick code spans and fences win over math.
+- **Spelling is checked on demand, never as you type:** no marks in the text. F7 (Word) or GUI+; (the Mac's "check document now"; Ctrl+; too) splits the screen: the text in the top half with the word marked, the word and up to five suggestions in the bottom half. The check starts at the word at the cursor and goes round the document to it once. A change is an ordinary edit, logged like typing; a Capitalised word gets a Capitalised suggestion.
+- **Not checked, as not prose:** single letters, words in capitals (acronyms), words with a capital inside (identifiers), and any word in a run of non-space characters holding a digit, `/`, `\`, `@`, `_`, a backtick, `<`, `>` or `=` (paths, addresses, code, TeX). A contraction is right when its stem is (*don't*, *isn't*, *we'll*).
+- **The checker is SymSpell** (edit distance 2, prefix 7, ranked by distance then frequency), written for this board. symspell-c99 itself is not linked: it allocates two 128 MB arenas when created and holds about 45 MB at distance 2, against 32 MB of PSRAM. Instead the index is built once on a computer by `m5tab5/tools/spelldict.c` from a word-frequency list, and lives on the card as `jinxed/spell/english.sym`. From symspell-c99's 86,060-word `dictionaries/dictionary.txt` that is 15 MB on the card; its word list, 2 MB, is read into PSRAM at the first check and stays. The delete index stays on the card, read at most ~60 small pieces per misspelling, the volume leased for each one. Checking that a word is right touches only RAM.
+- **The user's words** are `jinxed/spell/words.txt`, one per line, editable by hand. "Ignore all" lasts until power-off.
 
 **Shortcuts.** The modifier for app shortcuts is the **GUI key** (Windows key on PC keyboards, Command on Mac keyboards). Both send the same HID modifier, so they are handled identically. **Ctrl** and **Alt** (Option on a Mac keyboard: the same HID modifier) are the word-level modifiers. A Mac keyboard needs no separate bindings, only the Mac habits below. Do not assign any mode-switch hotkey.
 
@@ -115,10 +119,13 @@ Which mode the device runs in is chosen on the **settings page** (section 7) and
 | GUI+Up / Down | Document start / end |
 | GUI+Backspace | Delete the whole line |
 | GUI+, | Open the settings page |
+| F7, or GUI+; | Check spelling (above) |
 
 Held keys repeat. Ctrl and Alt chords type nothing.
 
 *On the settings page, today:* Up/Down scroll; PageUp/PageDown scroll a screen; Home/End and GUI+Up/Down jump to the top and bottom; Enter opens the email form; GUI+T sends a test email; Esc or GUI+, closes the page. In the email form: Tab / Shift+Tab or Up / Down move between fields, Enter saves, Esc cancels.
+
+*In the spelling view, today:* 1-9 change the word to that suggestion; Up/Down choose one and Enter takes it; Tab, Space or Right skip the word; I ignores it everywhere until power-off; A adds it to the user's words; Esc, F7 or GUI+; close. When nothing is left, any key closes.
 
 *Planned, not yet implemented*, modelled on MS Word and on the Mac text-field habits. Each row is "Word / Mac":
 
@@ -141,7 +148,7 @@ Held keys repeat. Ctrl and Alt chords type nothing.
 - For letter shortcuts, **Ctrl is accepted wherever GUI is**, so a PC keyboard's Word habits (Ctrl+Z, Ctrl+S, Ctrl+F) work. For the arrow keys the two differ on purpose: GUI means the whole line or document, as on a Mac; Ctrl and Alt mean a word or paragraph, as in Word.
 - **Undo never removes anything from the log** (section 4). It appends a new changeset that reverses the last one, so every word typed stays in the history.
 - **Selection comes first.** Copy, cut, paste, the Shift movements and Word-style delete-word all rest on the editor having a selection, and a RAM clipboard. Until then those rows stay planned.
-- **Not carried over from Word:** bold, italic, underline, alignment, styles, page breaks, tables, spell check, print. The text is plain.
+- **Not carried over from Word:** bold, italic, underline, alignment, styles, page breaks, tables, print. The text is plain.
 - Emacs-style Ctrl+A / Ctrl+E (line start / end on a Mac) are optional and not planned; Ctrl+A would collide with select-all on a PC keyboard.
 
 ## 6. Email
@@ -197,7 +204,6 @@ On-device TeX typesetting, PDF export, note-mode hotkeys, a Wi-Fi AP or web UI, 
 
 
 ## Sort this and elaborate
-- SymSpell (maybe) as a manually triggered spellcheck. No wavy red lines as you type, instead there's a dedicated half screen format. Dictionary is probably large enough to put on the sd card. https://github.com/sumanpokhrel-11/symspell-c99
 - Color for syntax highlighting and footer, no low contrast grays. Highlight background can be lower contrast.
 - Dark mode, light mode
 - configurable font scale (current size is smallest, this is a retina display)

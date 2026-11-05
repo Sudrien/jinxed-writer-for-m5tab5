@@ -70,13 +70,19 @@ bool kbd_present(void);
 char kbd_ascii(uint8_t usage, uint8_t mods, bool caps);
 
 /* Usages the editor acts on. HID Usage Tables, keyboard page. */
+#define KBD_A           (0x04)
+#define KBD_I           (0x0C)
+#define KBD_1           (0x1E)      /* to KBD_1 + 8, '9' */
 #define KBD_ENTER       (0x28)
 #define KBD_ESCAPE      (0x29)
 #define KBD_BACKSPACE   (0x2A)
 #define KBD_TAB         (0x2B)
 #define KBD_T           (0x17)
+#define KBD_SPACE       (0x2C)
+#define KBD_SEMICOLON   (0x33)
 #define KBD_COMMA       (0x36)
 #define KBD_CAPSLOCK    (0x39)
+#define KBD_F7          (0x40)
 #define KBD_HOME        (0x4A)
 #define KBD_PAGEUP      (0x4B)
 #define KBD_DELETE      (0x4C)

@@ -1,5 +1,7 @@
 #!/bin/sh
-# Build and run the doclog host test under ASan/UBSan. Needs a C compiler.
+# Build and run the doclog and spell host tests under ASan/UBSan. Needs a
+# C compiler. A word list as the first argument (symspell-c99's
+# dictionaries/dictionary.txt) also builds and probes a full dictionary.
 # SPDX-License-Identifier: MIT
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
@@ -17,5 +19,9 @@ typedef int esp_err_t;
 H
 cc -g -O1 -Wall -Wextra -fsanitize=address,undefined -DDOCLOG_HOST -D'DOCLOG_DIR="sd"' \
    -I "$t/inc" -I "$here/../main" -o "$t/dlt" "$here/doclog_host_test.c" "$here/../main/doclog.c"
-cd "$t" && ./dlt 2>/dev/null
+cc -g -O1 -Wall -Wextra -fsanitize=address,undefined -DSPELL_HOST -D'SPELL_DIR="sd/spell"' \
+   -I "$here/../main" -o "$t/slt" "$here/spell_host_test.c" "$here/../main/spell.c"
+list=${1:+$(cd "$(dirname "$1")" && pwd)/$(basename "$1")}
+(cd "$t" && ./dlt 2>/dev/null)
+(cd "$t" && rm -rf sd && ./slt $list 2>/dev/null)
 rm -rf "$t"
