@@ -7,6 +7,10 @@
  * The Tab5 has 32 MB of PSRAM. Here the index is built once on a
  * computer and stays on the card.
  *
+ * The algorithm is Wolf Garbe's (github.com/wolfgarbe/SymSpell, MIT);
+ * the approach, symspell-c99's (Suman Pokhrel, MIT). No code from
+ * either is used. See CREDITS.md.
+ *
  * The file, little-endian, every offset from the start:
  *
  *   header     64 bytes, below

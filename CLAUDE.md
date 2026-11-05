@@ -211,3 +211,4 @@ not be updated.
 - 0011 Log: each changeset says who made it, user or symspell
 - 0012 Spelling: download the dictionary when the card has none
 - 0013 Spelling: the dictionary from its own repository, by commit
+- 0014 CREDITS.md: SymSpell, symspell-c99, and the dictionary's sources
