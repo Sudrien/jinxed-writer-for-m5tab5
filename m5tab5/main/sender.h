@@ -5,7 +5,9 @@
  * One lower-priority task, made once and kept, so TLS and SMTP never run
  * on the editor's task and typing never waits on them. For now it sends
  * one thing, the settings page's test message; the background send of
- * the log's changes will be the second.
+ * the log's changes will be the second. It also fetches the spelling
+ * dictionary (spell.h) when the card has none: the same radio, the same
+ * TLS, one job at a time.
  *
  * Wi-Fi is up only for a send: the radio's policy hook says "on" while a
  * send wants it and "off" otherwise, and feckless_network_handler's worker
@@ -34,6 +36,13 @@ esp_err_t sender_init(void);
 
 /* Start a test send. False if one is already running. */
 bool sender_test(void);
+
+/* Start fetching the spelling dictionary from SPELL_DICT_URL to
+ * SPELL_DIR/SPELL_DICT. False if a send or a fetch is already running.
+ * Progress and the outcome are the status line; sender_fetched() says
+ * whether the last fetch put a dictionary on the card. */
+bool sender_fetch_dict(void);
+bool sender_fetched(void);
 
 /* Whether a send is running, and a line for the settings page: what it
  * is doing or how the last one ended, "" before the first. Domain only,

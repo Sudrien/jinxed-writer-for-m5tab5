@@ -49,6 +49,7 @@
 #include "doclog.h"
 #include "kbd.h"
 #include "rtc8130.h"
+#include "sender.h"
 #include "settings.h"
 #include "spell.h"
 #include "storage.h"
@@ -483,6 +484,9 @@ typedef struct {
     uint32_t     a, b;          /* the word, when there is one */
     const char  *msg;           /* or this, instead of a word */
     const char  *note;          /* beside the word: what last went wrong */
+    bool         no_dict;       /* msg is "no dictionary": D fetches one */
+    bool         fetching;      /* and the send task is fetching it */
+    char         status[160];   /* the send task's line, under msg */
     spell_word_t sugg[SPELL_SUGG_MAX];
     int          n_sugg, sel;
 } spell_view_t;
@@ -521,7 +525,13 @@ static void spell_draw(const spell_view_t *v)
     int y = pane + 24;
     if (!word) {
         gfx_draw_text(MARGIN_X, y, v->msg, SPELL_SCALE, W - MARGIN_X, COL_TEXT);
-        gfx_draw_text(MARGIN_X, y + row, "Any key to close.", 2, W - MARGIN_X, COL_DIM);
+        if (v->no_dict && v->status[0]) {
+            gfx_draw_text(MARGIN_X, y + row, v->status, 2, W - MARGIN_X, COL_TEXT);
+        }
+        const char *hint = !v->no_dict ? "Any key to close." :
+                           v->fetching ? "Any key to close; the download goes on." :
+                           "D: download it (15 MB, over Wi-Fi).   Any other key: close.";
+        gfx_draw_text(MARGIN_X, y + 2 * row, hint, 2, W - MARGIN_X, COL_DIM);
         gfx_blit(0, H);
         return;
     }
@@ -562,9 +572,14 @@ static bool spell_find(spell_view_t *v, uint32_t *at, bool *wrapped, uint32_t st
     for (;;) {
         /* A card swapped mid-check unloads it; the new card's is used. */
         if (!spell_load()) {
-            v->msg = "No dictionary: jinxed/spell/" SPELL_DICT " on the card.";
+            v->msg = "No dictionary on the card.";
+            v->no_dict = true;
+            /* A fetch already running, from an earlier view. */
+            v->fetching = sender_status(v->status, sizeof(v->status));
+            if (!v->fetching) v->status[0] = '\0';     /* not an old send's */
             return false;
         }
+        v->no_dict = false;
         uint32_t a, b;
         const bool got = spell_next_word(s_text, s_len, *at, &a, &b);
         if (!got || (*wrapped && a >= stop)) {
@@ -603,15 +618,40 @@ static void spell_view(void)
     bool open = spell_find(&v, &at, &wrapped, stop, any);
     if (open) { s_cur = v.a; any = true; }
     spell_draw(&v);
+    uint32_t seen = sender_gen();
 
     for (;;) {
         kbd_event_t ev;
         if (!kbd_get(&ev, pdMS_TO_TICKS(250))) {
             save_tick(false);           /* changes are saved as typing is */
+            /* A fetch's progress, and the check once it lands. */
+            if (v.no_dict && sender_gen() != seen) {
+                seen = sender_gen();
+                const bool busy = sender_status(v.status, sizeof(v.status));
+                if (v.fetching && !busy) {
+                    v.fetching = false;
+                    if (sender_fetched()) {
+                        open = spell_find(&v, &at, &wrapped, stop, any);
+                        if (open) { s_cur = v.a; any = true; }
+                    }
+                }
+                spell_draw(&v);
+            }
             continue;
         }
         if (!ev.down) continue;
-        if (!open) break;               /* the message: any key closes */
+        if (!open && v.no_dict && !v.fetching && ev.usage == KBD_D &&
+            !(ev.mods & (KBD_MOD_GUI | KBD_MOD_CTRL | KBD_MOD_ALT))) {
+            if (sender_fetch_dict()) {
+                v.fetching = true;
+            } else {
+                snprintf(v.status, sizeof(v.status), "Busy sending; try again in a moment.");
+            }
+            seen = sender_gen();
+            spell_draw(&v);
+            continue;
+        }
+        if (!open) break;               /* the message: any other key closes */
 
         const bool gui = (ev.mods & (KBD_MOD_GUI | KBD_MOD_CTRL)) != 0;
         const bool plain = (ev.mods & (KBD_MOD_GUI | KBD_MOD_CTRL | KBD_MOD_ALT)) == 0;

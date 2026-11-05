@@ -34,6 +34,15 @@
 #define SPELL_DICT      "english.sym"
 #define SPELL_USER      "words.txt"
 
+/* Where the board fetches the dictionary when the card has none: a
+ * release asset on this repository, english.sym as tools/spelldict.c
+ * builds it from symspell-c99's dictionaries/dictionary.txt (commit
+ * a764b99). A new dictionary is a new tag, so a board never fetches a
+ * file other than the one its firmware names. */
+#define SPELL_DICT_TAG  "dict-en-1"
+#define SPELL_DICT_URL  "https://github.com/Sudrien/jinxed-writer-for-m5tab5/releases/download/" \
+                        SPELL_DICT_TAG "/" SPELL_DICT
+
 /* Fixed in the file format: a dictionary built with others is refused. */
 #define SPELL_MAX_DIST  (2)
 #define SPELL_PREFIX    (7)
@@ -44,6 +53,11 @@
 #define SPELL_SUGG_MAX  (9)
 
 typedef char spell_word_t[SPELL_WORD_MAX + 1];
+
+/* Whether `path` holds a whole dictionary of exactly `size` bytes: its
+ * header good and its sections adding up to the size. Touches nothing
+ * else, so any task may call it; the caller holds the volume. */
+bool spell_file_ok(const char *path, long size);
 
 /* Read the dictionary and the user's words from the card. True when a
  * dictionary is loaded, now or from before (a second call is cheap).

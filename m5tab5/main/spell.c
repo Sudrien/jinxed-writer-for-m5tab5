@@ -276,6 +276,16 @@ static void to_u32(uint32_t *v, uint32_t n)
     for (uint32_t i = 0; i < n; i++) v[i] = get32((const uint8_t *)&v[i]);
 }
 
+bool spell_file_ok(const char *path, long size)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) return false;
+    hdr_t h;
+    const bool ok = read_hdr(f, &h) && (long)h.file_len == size;
+    fclose(f);
+    return ok;
+}
+
 static void load_user(void)
 {
     char path[PATH_LEN + 16];
