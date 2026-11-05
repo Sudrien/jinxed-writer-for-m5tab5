@@ -21,7 +21,12 @@
  *
  * Spelling (spell.h) is checked only when asked, F7 or GUI+semicolon:
  * the screen splits, the text above with the word marked, the word and
- * what it might be below. Changes are ordinary edits, logged like typing.
+ * what it might be below. A correction is an ordinary edit, but logged
+ * on its own and marked as the checker's (DOCLOG_SRC_SYMSPELL): what is
+ * pending is flushed before it and it is flushed straight after. If a
+ * flush cannot land (no card), user's and checker's changes end up in one
+ * changeset, and that is marked as the user's -- the checker is credited
+ * only with what is wholly its own.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -94,6 +99,8 @@ static char     *s_base;        /* TEXT_MAX bytes, PSRAM */
 static uint32_t  s_base_len;
 static char      s_name[32];    /* "2026-11-02.md" */
 static bool      s_pending;     /* s_text may differ from s_base */
+static doclog_src_t s_src;      /* who made what is pending */
+static doclog_src_t s_edit_src = DOCLOG_SRC_USER;  /* who is editing now */
 static TickType_t s_last_edit, s_first_edit;
 static bool      s_save_failed;
 static bool      s_ever_open;
@@ -256,7 +263,12 @@ static bool rtc_now(int64_t *now)
 static void edited(void)
 {
     const TickType_t now = xTaskGetTickCount();
-    if (!s_pending) s_first_edit = now;
+    if (!s_pending) {
+        s_first_edit = now;
+        s_src = s_edit_src;
+    } else if (s_src != s_edit_src) {
+        s_src = DOCLOG_SRC_USER;    /* mixed: the user's */
+    }
     s_pending = true;
     s_last_edit = now;
 }
@@ -332,7 +344,7 @@ static bool save_tick(bool force)
     int64_t t;
     const bool t_ok = rtc_now(&t);
     const bool was_failed = s_save_failed;
-    if (doclog_append(s_base, s_base_len, s_text, s_len, t, t_ok) == ESP_OK) {
+    if (doclog_append(s_base, s_base_len, s_text, s_len, t, t_ok, s_src) == ESP_OK) {
         memcpy(s_base, s_text, s_len);
         s_base_len = s_len;
         s_pending = false;
@@ -634,8 +646,12 @@ static void spell_view(void)
             const uint32_t n = (uint32_t)strlen(v.sugg[pick]);
             const uint32_t old = v.b - v.a;
             if (s_len - old + n <= TEXT_MAX) {
+                save_tick(true);        /* the user's edits, as theirs */
+                s_edit_src = DOCLOG_SRC_SYMSPELL;
                 erase(v.a, v.b);        /* the cursor goes to a */
                 insert(v.sugg[pick], n);
+                s_edit_src = DOCLOG_SRC_USER;
+                save_tick(true);        /* the correction, on its own */
                 if (v.a < stop) stop = stop - old + n;
                 at = v.a + n;
                 next = true;

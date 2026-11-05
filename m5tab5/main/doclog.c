@@ -410,12 +410,13 @@ static bool recover(char *text, uint32_t *len)
     return true;
 }
 
-static bool encode_record(uint32_t payload, int64_t now, bool now_ok, size_t *n)
+static bool encode_record(uint32_t payload, int64_t now, bool now_ok, doclog_src_t src, size_t *n)
 {
     put32(s_rec, payload);
     s_rec[4] = TYPE_CHANGESET;
     s_rec[5] = now_ok ? 0 : FLAG_UNTRUSTED;
-    put16(s_rec + 6, 0);
+    s_rec[6] = (uint8_t)src;
+    s_rec[7] = 0;
     put32(s_rec + 8, s_seq + 1);
     put64(s_rec + 12, now_ok ? now : 0);
     const uint32_t c = crc32c(s_crc, s_rec, REC_HDR + payload);
@@ -424,10 +425,10 @@ static bool encode_record(uint32_t payload, int64_t now, bool now_ok, size_t *n)
     return true;
 }
 
-static esp_err_t append_cs(uint32_t payload, int64_t now, bool now_ok)
+static esp_err_t append_cs(uint32_t payload, int64_t now, bool now_ok, doclog_src_t src)
 {
     size_t n;
-    encode_record(payload, now, now_ok, &n);
+    encode_record(payload, now, now_ok, src, &n);
     const uint32_t c = get32(s_rec + REC_HDR + payload);
     if (!append_record(s_rec, n)) return ESP_FAIL;
     s_end += (long)n;
@@ -491,7 +492,7 @@ static esp_err_t create_log(const char *name, char *text, uint32_t *len,
     *len = 0;
     if (n) {
         const uint32_t p = cs_make(s_rec + REC_HDR, "", 0, text, n);
-        if (append_cs(p, when, when_ok) != ESP_OK) { s_open = false; return ESP_FAIL; }
+        if (append_cs(p, when, when_ok, DOCLOG_SRC_USER) != ESP_OK) { s_open = false; return ESP_FAIL; }
         *len = n;
     }
     return ESP_OK;
@@ -529,14 +530,14 @@ void doclog_close(void)   { s_open = false; }
 
 esp_err_t doclog_append(const char *old, uint32_t old_len,
                         const char *neu, uint32_t new_len,
-                        int64_t now, bool now_ok)
+                        int64_t now, bool now_ok, doclog_src_t src)
 {
     if (!s_open) return ESP_ERR_INVALID_STATE;
     if (old_len == new_len && memcmp(old, neu, old_len) == 0) return ESP_OK;
     if (!VOL_PRESENT()) return ESP_ERR_INVALID_STATE;
     VOL_HOLD();
     const uint32_t p = cs_make(s_rec + REC_HDR, old, old_len, neu, new_len);
-    const esp_err_t err = append_cs(p, now, now_ok);
+    const esp_err_t err = append_cs(p, now, now_ok, src);
     VOL_RELEASE();
     return err;
 }

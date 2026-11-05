@@ -28,7 +28,9 @@
  *     0   u32 payload length
  *     4   u8  type (1 changeset)
  *     5   u8  flags (bit 0: time untrusted -- the RTC reported VLF)
- *     6   u16 reserved, 0
+ *     6   u8  source: who made it, a doclog_src_t (0 in logs written
+ *             before there was one, which is "the user")
+ *     7   u8  reserved, 0
  *     8   u32 seq, monotonic from 1
  *     12  i64 time (RTC epoch, advisory)
  *     20  payload
@@ -63,6 +65,14 @@
 #define DOCLOG_SUFFIX0  ".h0"
 #define DOCLOG_SUFFIX1  ".h1"
 
+/* Who made a changeset: the user typing, or a correction taken from
+ * the spelling check. Record byte 6. A reader that predates it ignores
+ * it; every record it wrote says 0, the user. */
+typedef enum {
+    DOCLOG_SRC_USER     = 0,
+    DOCLOG_SRC_SYMSPELL = 1,
+} doclog_src_t;
+
 /* Allocate buffers for texts of up to `cap` bytes. Once. */
 esp_err_t doclog_init(uint32_t cap);
 
@@ -78,14 +88,14 @@ esp_err_t doclog_open(const char *name, char *text, uint32_t *len,
 bool doclog_is_open(void);
 
 /*
- * Append the changeset taking `old` to `neu` to both twins. `old` must be
- * the text the log replays to (the last appended or opened text). No-op
- * when they are equal. On failure nothing is assumed written; call again
- * with the same `old` later.
+ * Append the changeset taking `old` to `neu` to both twins, made by
+ * `src`. `old` must be the text the log replays to (the last appended or
+ * opened text). No-op when they are equal. On failure nothing is assumed
+ * written; call again with the same `old` later.
  */
 esp_err_t doclog_append(const char *old, uint32_t old_len,
                         const char *neu, uint32_t new_len,
-                        int64_t now, bool now_ok);
+                        int64_t now, bool now_ok, doclog_src_t src);
 
 /*
  * After the card came and went: is the log on the card still the one

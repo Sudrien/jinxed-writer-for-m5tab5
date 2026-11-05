@@ -208,3 +208,4 @@ not be updated.
 - 0008 main: the === Jinxed Writer === version line
 - 0009 Spec: the shortcuts, what exists and what is planned
 - 0010 Spelling: SymSpell on demand, its index on the card
+- 0011 Log: each changeset says who made it, user or symspell
