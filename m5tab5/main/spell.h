@@ -34,14 +34,16 @@
 #define SPELL_DICT      "english.sym"
 #define SPELL_USER      "words.txt"
 
-/* Where the board fetches the dictionary when the card has none: a
- * release asset on this repository, english.sym as tools/spelldict.c
- * builds it from symspell-c99's dictionaries/dictionary.txt (commit
- * a764b99). A new dictionary is a new tag, so a board never fetches a
- * file other than the one its firmware names. */
-#define SPELL_DICT_TAG  "dict-en-1"
-#define SPELL_DICT_URL  "https://github.com/Sudrien/jinxed-writer-for-m5tab5/releases/download/" \
-                        SPELL_DICT_TAG "/" SPELL_DICT
+/* Where the board fetches the dictionary when the card has none:
+ * jinxed-writer-spellcheck-dictionaries, at a commit, so the URL can only
+ * ever mean one file. english.sym there is what tools/spelldict.c builds
+ * from symspell-c99's dictionaries/dictionary.txt (commit a764b99):
+ * 15,347,221 bytes, SHA-256 f6fb3ea3b070934df3561589f3a5abaffc1021bc
+ * fc9f6b80a8f93fd700cccf10. A new dictionary is a new commit there and
+ * a new hash here. */
+#define SPELL_DICT_REPO "https://raw.githubusercontent.com/Sudrien/jinxed-writer-spellcheck-dictionaries/"
+#define SPELL_DICT_REV  "0c769e5ab87546d84bd45cb1adc4d0aa2d06ef80"
+#define SPELL_DICT_URL  SPELL_DICT_REPO SPELL_DICT_REV "/" SPELL_DICT
 
 /* Fixed in the file format: a dictionary built with others is refused. */
 #define SPELL_MAX_DIST  (2)

@@ -56,7 +56,8 @@ static const char *TAG = "sender";
 /* The dictionary fetch. Received into PSRAM and written in pieces this
  * big, the card leased for each piece, never across the fetch (spec 1). */
 #define FETCH_PIECE     (64 * 1024)
-#define FETCH_HOPS      (5)         /* GitHub: one 302, to its asset host */
+#define FETCH_HOPS      (5)         /* raw.githubusercontent.com answers directly;
+                                     * a redirect is still followed, should it move */
 /* The radio's wait is a send's (spec 3); the transfer gets this long,
  * and stalls for this long, before it is given up. */
 #define FETCH_MAX_MS    (10 * 60 * 1000)
