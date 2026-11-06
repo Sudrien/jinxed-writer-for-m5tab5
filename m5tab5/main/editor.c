@@ -368,6 +368,8 @@ static bool foot_warns(void)
     return !kbd_present() || s_caps || !storage_present(STORAGE_SD) || s_save_failed || s_conflict;
 }
 
+static bool s_hold_blit;        /* 0039: find draws its bar over, then blits */
+
 static void redraw(void)
 {
     const bool foot = !s_bare || foot_warns();
@@ -414,7 +416,7 @@ static void redraw(void)
         gfx_draw_text(MARGIN_X + 21 * GFX_GLYPH_W(FOOT_SCALE), s_status_y, "conflict", FOOT_SCALE, W, COL_DIM);
     }
 
-    gfx_blit(0, H);
+    if (!s_hold_blit) gfx_blit(0, H);
 }
 
 /* ---- saving ----------------------------------------------------------- */
@@ -439,6 +441,8 @@ static void edited(void)
     s_last_edit = now;
     s_anchor = NO_ANCHOR;           /* 0033: an edit ends the selection */
 }
+
+static void undo_clear(void);     /* 0039 */
 
 /*
  * Get the log open on whatever card is in the slot. At boot that is a
@@ -479,6 +483,7 @@ static bool attach(void)
         s_cur = s_len;
     } else if (rl > 0 && (uint64_t)rl + s_len <= TEXT_MAX) {
         if (s_ever_open) ESP_LOGW(TAG, "a different log on this card; keeping both texts");
+        undo_clear();                   /* 0039: every position moves */
         memmove(s_text + rl, s_text, s_len);
         memcpy(s_text, s_base, rl);
         s_len += rl;
@@ -629,12 +634,15 @@ static void pick_name(void)
 
 /* ---- editing ---------------------------------------------------------- */
 
+static void undo_record(uint32_t pos, const char *del, uint32_t dn, const char *ins, uint32_t in);
+
 static void insert(const char *s, uint32_t n)
 {
     if (s_len + n > TEXT_MAX) {
         ESP_LOGW(TAG, "buffer full");
         return;
     }
+    undo_record(s_cur, NULL, 0, s, n);
     memmove(s_text + s_cur + n, s_text + s_cur, s_len - s_cur);
     memcpy(s_text + s_cur, s, n);
     s_len += n;
@@ -646,10 +654,197 @@ static void erase(uint32_t from, uint32_t to)
 {
     if (to > s_len) to = s_len;
     if (from >= to) return;
+    undo_record(from, s_text + from, to - from, NULL, 0);
     memmove(s_text + from, s_text + to, s_len - to);
     s_len -= to - from;
     s_cur = from;
     edited();
+}
+
+/* ---- undo (0039) -------------------------------------------------------
+ *
+ * Every insert() and erase() is kept, in RAM, until power-off: where,
+ * what went, what came, where the cursor was. Undo takes the text back
+ * by one group of them and redo forward again -- and that is all: the
+ * next flush logs the difference like any other, so undo appends a
+ * changeset that reverses the last and never takes one out of the log
+ * (spec 5). A group is one key's worth (a type-over's delete and its
+ * letter, a paste, an indent of many lines), or a run of typing up to
+ * where a word begins, or a run of Backspace or Delete, with no pause
+ * of UNDO_MERGE_MS in it. The oldest groups are let go when the arena
+ * or the table is full; an edit too big for the arena forgets it all.
+ */
+#define UNDO_ARENA      (1024 * 1024)
+#define UNDO_OPS        (8192)
+#define UNDO_MERGE_MS   (2000)
+
+typedef struct {
+    uint32_t pos, del, ins;     /* at pos, del bytes went and ins came */
+    uint32_t off;               /* in the arena: the del bytes, then the ins */
+    uint32_t cur, anchor;       /* the cursor and the selection's anchor before */
+    uint32_t group;
+} undo_op_t;
+
+static undo_op_t *s_uops;       /* UNDO_OPS, PSRAM */
+static char      *s_uarena;     /* UNDO_ARENA, PSRAM */
+static uint32_t   s_un;         /* ops kept */
+static uint32_t   s_udone;      /* [0, s_udone) done; the rest undone, for redo */
+static uint32_t   s_ugroup;     /* never reused */
+static uint32_t   s_action;     /* bumped per key, so one key is one group */
+static uint32_t   s_uaction;
+static TickType_t s_ulast;
+static bool       s_replaying;
+
+static uint32_t undo_used(uint32_t n) { return n ? s_uops[n - 1].off + s_uops[n - 1].del + s_uops[n - 1].ins : 0; }
+
+static void undo_clear(void) { s_un = s_udone = 0; s_ugroup++; }
+
+/* Let the oldest group go. */
+static void undo_drop(void)
+{
+    uint32_t k = 1;
+    while (k < s_un && s_uops[k].group == s_uops[0].group) k++;
+    const uint32_t cut = k < s_un ? s_uops[k].off : undo_used(s_un);
+    memmove(s_uarena, s_uarena + cut, undo_used(s_un) - cut);
+    memmove(s_uops, s_uops + k, (s_un - k) * sizeof *s_uops);
+    s_un -= k;
+    s_udone = s_udone > k ? s_udone - k : 0;
+    for (uint32_t i = 0; i < s_un; i++) s_uops[i].off -= cut;
+}
+
+static bool undo_merges(const undo_op_t *l, uint32_t pos, uint32_t dn, const char *ins, uint32_t in)
+{
+    if (xTaskGetTickCount() - s_ulast >= pdMS_TO_TICKS(UNDO_MERGE_MS)) return false;
+    if (l->del == 0 && dn == 0 && l->ins == 1 && in == 1 && pos == l->pos + 1) {
+        const char prev = s_uarena[l->off];
+        return ins[0] != '\n' && !(prev == ' ' && ins[0] != ' ');   /* a word starts a group */
+    }
+    return l->ins == 0 && in == 0 && l->del == 1 && dn == 1 && (pos + 1 == l->pos || pos == l->pos);
+}
+
+static void undo_record(uint32_t pos, const char *del, uint32_t dn, const char *ins, uint32_t in)
+{
+    if (s_replaying || !s_uops || !s_uarena) return;
+    s_un = s_udone;                     /* a new edit: redo is gone */
+    if (dn + in > UNDO_ARENA) {
+        ESP_LOGW(TAG, "edit too big to undo; history cleared");
+        undo_clear();
+        return;
+    }
+    const bool same = s_un && s_uops[s_un - 1].group == s_ugroup &&
+                      (s_action == s_uaction || undo_merges(&s_uops[s_un - 1], pos, dn, ins, in));
+    if (!same) s_ugroup++;
+    while (s_un && (s_un >= UNDO_OPS || undo_used(s_un) + dn + in > UNDO_ARENA)) undo_drop();
+    undo_op_t *o = &s_uops[s_un];
+    *o = (undo_op_t){ .pos = pos, .del = dn, .ins = in, .off = undo_used(s_un), .cur = s_cur,
+                      .anchor = s_anchor, .group = s_ugroup };
+    if (dn) memcpy(s_uarena + o->off, del, dn);
+    if (in) memcpy(s_uarena + o->off + dn, ins, in);
+    s_un++;
+    s_udone = s_un;
+    s_uaction = s_action;
+    s_ulast = xTaskGetTickCount();
+}
+
+/* At pos, `rm` bytes go and `n` of `add` come: undo's and redo's edit. */
+static void undo_apply(uint32_t pos, uint32_t rm, const char *add, uint32_t n)
+{
+    memmove(s_text + pos + n, s_text + pos + rm, s_len - pos - rm);
+    memcpy(s_text + pos, add, n);
+    s_len = s_len - rm + n;
+    edited();
+}
+
+static bool undo(void)
+{
+    if (!s_udone) return false;
+    const uint32_t g = s_uops[s_udone - 1].group;
+    uint32_t cur = s_cur, anchor = NO_ANCHOR;
+    s_replaying = true;
+    while (s_udone && s_uops[s_udone - 1].group == g) {
+        const undo_op_t *o = &s_uops[--s_udone];
+        undo_apply(o->pos, o->ins, s_uarena + o->off, o->del);
+        cur = o->cur;
+        anchor = o->anchor;
+    }
+    s_replaying = false;
+    s_cur = cur > s_len ? s_len : cur;
+    s_anchor = anchor <= s_len ? anchor : NO_ANCHOR;    /* what was selected, again */
+    s_ugroup++;                         /* typing after starts afresh */
+    return true;
+}
+
+static bool redo(void)
+{
+    if (s_udone >= s_un) return false;
+    const uint32_t g = s_uops[s_udone].group;
+    uint32_t cur = s_cur;
+    s_replaying = true;
+    while (s_udone < s_un && s_uops[s_udone].group == g) {
+        const undo_op_t *o = &s_uops[s_udone++];
+        undo_apply(o->pos, o->del, s_uarena + o->off + o->del, o->ins);
+        cur = o->pos + o->ins;
+    }
+    s_replaying = false;
+    s_cur = cur > s_len ? s_len : cur;
+    s_ugroup++;
+    return true;
+}
+
+/* ---- indent (0039) ---------------------------------------------------- */
+
+/* Insert at `pos`, the cursor where it is: undo keeps it as it was. */
+static void put_at(uint32_t pos, const char *t, uint32_t n)
+{
+    if (s_len + n > TEXT_MAX) return;
+    undo_record(pos, NULL, 0, t, n);
+    memmove(s_text + pos + n, s_text + pos, s_len - pos);
+    memcpy(s_text + pos, t, n);
+    s_len += n;
+    edited();
+}
+
+static uint32_t lstart(uint32_t p)
+{
+    while (p > 0 && s_text[p - 1] != '\n') p--;
+    return p;
+}
+
+/* Tab / Shift+Tab over the lines from a to b (b > a: those it touches),
+ * last line first so the earlier positions hold. With a selection, the
+ * lines are selected after, whole; without, the cursor keeps its place
+ * in the text. */
+static void indent(uint32_t a, uint32_t b, bool out, bool keep_sel)
+{
+    const uint32_t first = lstart(a);
+    uint32_t ls = lstart(b > a ? b - 1 : b);
+    uint32_t cur = s_cur;
+    /* Where the last line touched ends, as a distance from the text's
+     * end, which no edit here reaches past. */
+    uint32_t end = b;
+    if (!(b > a && s_text[b - 1] == '\n')) while (end < s_len && s_text[end] != '\n') end++;
+    const uint32_t tail = s_len - end;
+    for (;;) {
+        if (out) {
+            uint32_t n = 0;
+            while (n < TAB_SPACES && ls + n < s_len && s_text[ls + n] == ' ') n++;
+            if (n) {
+                erase(ls, ls + n);
+                if (cur > ls) cur -= cur - ls < n ? cur - ls : n;
+            }
+        } else if (s_len + TAB_SPACES <= TEXT_MAX) {
+            put_at(ls, "    ", TAB_SPACES);
+            if (cur >= ls) cur += TAB_SPACES;
+        }
+        if (ls <= first) break;
+        ls = lstart(ls - 1);
+    }
+    if (keep_sel) {
+        s_anchor = first;
+        s_cur = s_len - tail;
+    } else {
+        s_cur = cur > s_len ? s_len : cur;
+    }
 }
 
 static void vertical(int dl)
@@ -857,6 +1052,24 @@ static bool key(const kbd_event_t *ev)
     const bool other = (mods & (KBD_MOD_CTRL | KBD_MOD_GUI | KBD_MOD_ALT)) != 0;
     uint32_t a = 0, b = 0;
     const bool has = sel(&a, &b);
+    s_action++;                         /* 0039: one key, one undo group at most */
+
+    /* 0039: undo, redo. Cmd+Z, Cmd+Shift+Z, and Ctrl+Y on a PC. */
+    if (ev->cmd && (usage == KBD_Z || (usage == KBD_Y && !ev->apple && !shift))) {
+        s_want_col = -1;
+        return (usage == KBD_Z && !shift) ? undo() : redo();
+    }
+    /* 0039: Tab over a selection of lines indents them; Shift+Tab
+     * takes up to four spaces off the start of each, or of the
+     * cursor's line. */
+    if (usage == KBD_TAB && !other) {
+        const bool lines = has && memchr(s_text + a, '\n', b - a) != NULL;
+        if (shift || lines) {
+            s_want_col = -1;
+            indent(has ? a : s_cur, has ? b : s_cur, shift, has);
+            return true;
+        }
+    }
 
     if (moves(usage)) {
         if (!shift && !other && has && (usage == KBD_LEFT || usage == KBD_RIGHT)) {
@@ -925,6 +1138,134 @@ static bool key(const kbd_event_t *ev)
 static bool repeats(uint8_t usage)
 {
     return usage != KBD_CAPSLOCK && usage != KBD_ESCAPE && usage < 0xE0;
+}
+
+/* ---- find (0039) ------------------------------------------------------
+ *
+ * Cmd+F opens a bar in the status line's row. What is typed is found as
+ * it is typed, from where the cursor was, ignoring case (ASCII), and
+ * the match is selected. Enter or F3 finds the next, Shift with either
+ * the one before -- and Cmd+G / Cmd+Shift+G on an Apple keyboard -- each
+ * going round the end. Esc closes the bar and leaves the match selected.
+ * The query stays until power-off: F3 or Cmd+G in the editor use it
+ * with the bar shut. A Cmd+F with a query shows it, and the first letter
+ * typed replaces it.
+ */
+#define FIND_MAX        (64)
+static char s_find[FIND_MAX + 1];
+static int  s_find_len;
+
+static char lower(char c) { return (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c; }
+
+static bool match_at(uint32_t i)
+{
+    for (int k = 0; k < s_find_len; k++) if (lower(s_text[i + (uint32_t)k]) != lower(s_find[k])) return false;
+    return true;
+}
+
+/* The next match from `from` (or the one before it), round the end
+ * once. Selected when found. */
+static bool find_go(uint32_t from, bool fwd)
+{
+    const uint32_t n = (uint32_t)s_find_len;
+    if (!n || n > s_len) return false;
+    const uint32_t last = s_len - n;     /* the last place a match can start */
+    if (from > last + 1) from = last + 1;
+    uint32_t hit = UINT32_MAX;
+    if (fwd) {
+        for (uint32_t i = from; i <= last && hit == UINT32_MAX; i++) if (match_at(i)) hit = i;
+        for (uint32_t i = 0; i < from && i <= last && hit == UINT32_MAX; i++) if (match_at(i)) hit = i;
+    } else {
+        for (uint32_t i = from; i-- > 0 && hit == UINT32_MAX; ) if (i <= last && match_at(i)) hit = i;
+        for (uint32_t i = last + 1; i-- > from && hit == UINT32_MAX; ) if (match_at(i)) hit = i;
+    }
+    if (hit == UINT32_MAX) return false;
+    s_anchor = hit;
+    s_cur = hit + n;
+    s_want_col = -1;
+    return true;
+}
+
+/* Next from the selection's end, or the one before its start. */
+static bool find_step(bool fwd)
+{
+    uint32_t a = s_cur, b = s_cur;
+    sel(&a, &b);
+    return find_go(fwd ? b : a, fwd);
+}
+
+static void find_bar(const char *note)
+{
+    s_hold_blit = true;
+    redraw();
+    s_hold_blit = false;
+    const int W = gfx_w(), H = gfx_h();
+    const int y = H - MARGIN_Y / 2 - GFX_GLYPH_H(FOOT_SCALE) - 8;
+    gfx_fill_rect(0, y, W, H - y, COL_HEAD);
+    gfx_fill_rect(0, y, W, 2, COL_RULE);
+    const int gw = GFX_GLYPH_W(FOOT_SCALE);
+    const int ty = y + 8;
+    gfx_draw_text(MARGIN_X, ty, "Find:", FOOT_SCALE, W, COL_DIM);
+    const int fx = MARGIN_X + 6 * gw;
+    gfx_draw_text(fx, ty, s_find, FOOT_SCALE, W - fx - MARGIN_X, COL_TEXT);
+    gfx_fill_rect(fx + s_find_len * gw, ty, FOOT_SCALE, GFX_GLYPH_H(FOOT_SCALE), COL_CURSOR);
+    if (note) {
+        const int nx = fx + (s_find_len + 3) * gw;
+        gfx_draw_text(nx, ty, note, FOOT_SCALE, W - nx - MARGIN_X, COL_DIM);
+    }
+    gfx_blit(0, H);
+}
+
+static void find_view(void)
+{
+    uint32_t origin = s_cur, b0 = s_cur;
+    sel(&origin, &b0);
+    bool fresh = s_find_len > 0;        /* the old query: the first letter replaces it */
+    const char *note = NULL;
+    find_bar(NULL);
+    for (;;) {
+        kbd_event_t ev;
+        if (!kbd_get(&ev, pdMS_TO_TICKS(250))) { save_tick(false); continue; }
+        if (!ev.down) continue;
+        const bool shift = (ev.mods & KBD_MOD_SHIFT) != 0;
+        const bool plain = !(ev.mods & (KBD_MOD_CTRL | KBD_MOD_GUI | KBD_MOD_ALT));
+        bool changed = false, step = false, fwd = true;
+        switch (ev.usage) {
+        case KBD_ESCAPE:    return;
+        case KBD_ENTER:
+        case KBD_KP_ENTER:
+        case KBD_F3:        step = true; fwd = !shift; break;
+        case KBD_G:         if (ev.cmd && ev.apple) { step = true; fwd = !shift; } break;
+        case KBD_F:         if (ev.cmd) return; break;      /* Cmd+F again closes */
+        case KBD_CAPSLOCK:  s_caps = !s_caps; break;
+        case KBD_BACKSPACE:
+            if (fresh) { s_find_len = 0; fresh = false; }
+            else if (s_find_len > 0) s_find_len--;
+            s_find[s_find_len] = '\0';
+            changed = true;
+            break;
+        default: break;
+        }
+        if (!step && !changed && plain && ev.usage != KBD_CAPSLOCK && ev.usage != KBD_ENTER &&
+            ev.usage != KBD_KP_ENTER && ev.usage != KBD_F3) {
+            const char c = kbd_ascii(ev.usage, ev.mods, s_caps);
+            if (c >= ' ' && c <= '~') {
+                if (fresh) { s_find_len = 0; fresh = false; }
+                if (s_find_len < FIND_MAX) { s_find[s_find_len++] = c; s_find[s_find_len] = '\0'; }
+                changed = true;
+            }
+        }
+        if (changed) {
+            fresh = false;
+            if (s_find_len == 0) { s_anchor = NO_ANCHOR; s_cur = origin; note = NULL; }
+            else if (!find_go(origin, true)) { s_anchor = NO_ANCHOR; s_cur = origin; note = "not found"; }
+            else note = NULL;
+        } else if (step) {
+            fresh = false;
+            note = find_step(fwd) ? NULL : "not found";
+        }
+        find_bar(note);
+    }
 }
 
 /* ---- spelling -------------------------------------------------------- */
@@ -1159,6 +1500,7 @@ static bool spell_replace(spell_view_t *v, const char *text, uint32_t n, doclog_
         return false;
     }
     if (src == DOCLOG_SRC_SYMSPELL) save_tick(true);    /* the user's edits, as theirs */
+    s_action++;                     /* 0039: each correction its own undo */
     s_edit_src = src;
     erase(v->a, v->b);              /* the cursor goes to a */
     insert(text, n);
@@ -1220,19 +1562,18 @@ static const sheet_row_t k_keys_pc[] = {
     { "Home / End",              "line start / end" },
     { "Ctrl+Home / End",         "document start / end" },
     { "PageUp / PageDown",       "a screen up / down" },
-    { "Ctrl+Backspace / Delete", "delete the word before / after" },
+    { "Ctrl+Backspace / Delete", "delete word before / after" },
     { "Ctrl+L, Ctrl+Shift+K",    "delete the line" },
-    { "Shift + any of those moves", "select" },
-    { "Ctrl+A",                  "select all" },
+    { "Shift+moves; Ctrl+A",     "select; select all" },
     { "Ctrl+C / X / V",          "copy / cut / paste" },
-    { "Ctrl+S",                  "save now" },
-    { "Ctrl+Enter",              "email today's notes" },
+    { "Ctrl+Z; Ctrl+Y",          "undo; redo" },
+    { "Tab / Shift+Tab",         "indent / unindent" },
+    { "Ctrl+F; F3 / Shift+F3",   "find; next / previous" },
+    { "Ctrl+S; Ctrl+Enter",      "save now; email notes" },
     { "F7",                      "check spelling" },
     { "Ctrl+= / Ctrl+-",         "text larger / smaller" },
     { "Ctrl+,",                  "settings" },
-    { "F1",                      "these keys" },
-    { "F11",                     "bare page, on / off" },
-    { "F12",                     "page stats" },
+    { "F1 / F11 / F12",          "keys / bare page / stats" },
 };
 static const sheet_row_t k_keys_apple[] = {
     { "Option+Left / Right",     "word back / forward" },
@@ -1242,17 +1583,16 @@ static const sheet_row_t k_keys_apple[] = {
     { "PageUp / PageDown",       "a screen up / down" },
     { "Option+Delete",           "delete the word before" },
     { "Command+Delete",          "delete to the line's start" },
-    { "Shift + any of those moves", "select" },
-    { "Command+A",               "select all" },
+    { "Shift+moves; Command+A",  "select; select all" },
     { "Command+C / X / V",       "copy / cut / paste" },
-    { "Command+S",               "save now" },
-    { "Command+Enter",           "email today's notes" },
+    { "Command+Z / Shift+Z",     "undo / redo" },
+    { "Tab / Shift+Tab",         "indent / unindent" },
+    { "Command+F; Command+G",    "find; next (Shift: back)" },
+    { "Command+S; Command+Enter", "save now; email notes" },
     { "Command+; or F7",         "check spelling" },
     { "Command+= / Command+-",   "text larger / smaller" },
     { "Command+,",               "settings" },
-    { "F1",                      "these keys" },
-    { "F11",                     "bare page, on / off" },
-    { "F12",                     "page stats" },
+    { "F1 / F11 / F12",          "keys / bare page / stats" },
 };
 #define SHEET_SCALE     (2)
 
@@ -1262,8 +1602,16 @@ static void sheet(const char *title, const sheet_row_t *row, int n)
 {
     const int W = gfx_w(), H = gfx_h();
     const int lh = GFX_GLYPH_H(SHEET_SCALE) + 10;
-    const bool narrow = W < 1000;
-    const int col2 = narrow ? MARGIN_X + 32 : W * 45 / 100;
+    /* 0039: a row on one line wherever both halves fit -- the narrow
+     * way up too -- and keys over what they do only where they do not. */
+    int mk = 0, md = 0;
+    for (int i = 0; i < n; i++) {
+        const int k = gfx_text_w(row[i].keys, SHEET_SCALE), d = gfx_text_w(row[i].does, SHEET_SCALE);
+        if (k > mk) mk = k;
+        if (d > md) md = d;
+    }
+    const bool narrow = mk + 24 + md > W - 2 * MARGIN_X;
+    const int col2 = narrow ? MARGIN_X + 32 : W >= 1000 ? W * 45 / 100 : MARGIN_X + mk + 24;
     gfx_fill_rect(0, 0, W, H, COL_HEAD);
     int y = MARGIN_Y;
     gfx_draw_text(MARGIN_X, y, title, SHEET_SCALE + 1, W - 2 * MARGIN_X, COL_TEXT);
@@ -1493,6 +1841,8 @@ esp_err_t editor_init(void)
     s_base    = heap_caps_malloc(TEXT_MAX, MALLOC_CAP_SPIRAM);
     s_mds     = heap_caps_malloc(TEXT_MAX, MALLOC_CAP_SPIRAM);   /* 0031; drawn plain without */
     s_clip    = heap_caps_malloc(TEXT_MAX, MALLOC_CAP_SPIRAM);   /* 0033; no copy or paste without */
+    s_uops    = heap_caps_malloc(UNDO_OPS * sizeof *s_uops, MALLOC_CAP_SPIRAM);   /* 0039; no undo without */
+    s_uarena  = heap_caps_malloc(UNDO_ARENA, MALLOC_CAP_SPIRAM);
     if (!s_text || !s_ls || !s_le || !s_base) return ESP_ERR_NO_MEM;
     ESP_RETURN_ON_ERROR(doclog_init(TEXT_MAX), TAG, "doclog");
 
@@ -1548,6 +1898,17 @@ void editor_run(void)
                 held = 0;               /* 0036: save now -- the log, then the export */
                 save_tick(true);
                 export_tick(true);
+                dirty = true;
+            } else if (ev.down && ev.cmd && ev.usage == KBD_F) {
+                held = 0;               /* 0039: find */
+                find_view();
+                touch_down = false;
+                dirty = true;
+            } else if (ev.down && ((ev.usage == KBD_F3 && !(ev.mods & ~KBD_MOD_SHIFT)) ||
+                                   (ev.usage == KBD_G && ev.cmd && ev.apple))) {
+                held = 0;               /* 0039: the next, or the one before */
+                if (s_find_len) find_step(!(ev.mods & KBD_MOD_SHIFT));
+                else { find_view(); touch_down = false; }
                 dirty = true;
             } else if (ev.down && ev.cmd && (ev.usage == KBD_ENTER || ev.usage == KBD_KP_ENTER)) {
                 held = 0;               /* 0038: send now, Cmd+Enter (spec 5) */

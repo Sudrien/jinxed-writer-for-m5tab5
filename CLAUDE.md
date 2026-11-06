@@ -242,3 +242,4 @@ worked. A tag move keeps that line.
 - 0036 Export: the .md from the log, a sidecar for its hash, conflicts beside it; Ctrl+S
 - 0037 Export: a footer -- the author if set, the export time, the build
 - 0038 Send: today's notes by email now, Cmd+Enter or a button on the settings page
+- 0039 Editor: undo and redo, indent and unindent, find; no go to line

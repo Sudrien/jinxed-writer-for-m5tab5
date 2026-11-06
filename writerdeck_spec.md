@@ -136,7 +136,7 @@ Which mode the device runs in is chosen on the **settings page** (section 7) and
 | To the line's start | -- | Command+Delete | ✓ |
 | The whole line | Ctrl+L (Notepad++), or Ctrl+Shift+K (VS Code) | -- | ✓ |
 | **Typing** | | | |
-| Four spaces / remove up to four leading spaces | Tab / Shift+Tab | Tab / Shift+Tab | ✓ / planned |
+| Four spaces / remove up to four leading spaces; over a selection of lines, each line (0039) | Tab / Shift+Tab | Tab / Shift+Tab | ✓ |
 | Caps (shown in the status line) | Caps Lock | Caps Lock | ✓ |
 | **Selecting** (0033) | | | |
 | Extend by character / line / screen | Shift+arrows, Shift+PageUp / PageDown | Shift+arrows, Shift+PageUp / PageDown | ✓ |
@@ -146,15 +146,14 @@ Which mode the device runs in is chosen on the **settings page** (section 7) and
 | Select all | Ctrl+A | Command+A | ✓ |
 | **Editing** | | | |
 | Copy / cut / paste | Ctrl+C / X / V | Command+C / X / V | ✓ |
-| Undo | Ctrl+Z | Command+Z | planned |
-| Redo | Ctrl+Y, or Ctrl+Shift+Z | Command+Shift+Z | planned |
+| Undo (0039) | Ctrl+Z | Command+Z | ✓ |
+| Redo | Ctrl+Y, or Ctrl+Shift+Z | Command+Shift+Z | ✓ |
 | **The document and the app** | | | |
 | Check spelling (above) | F7 | Command+;, or F7 | ✓ |
 | Settings | Ctrl+, (VS Code's) | Command+, | ✓ |
 | Text larger / smaller, number row or keypad (0022) | Ctrl+= / Ctrl+- | Command+= / Command+- | ✓ |
 | Save now (flush the log, then export) | Ctrl+S | Command+S | ✓ |
-| Find; next / previous | Ctrl+F; F3 / Shift+F3 | Command+F; Command+G / Command+Shift+G, or F3 / Shift+F3 | planned |
-| Go to line | Ctrl+G | Command+L | planned |
+| Find; next / previous (0039) | Ctrl+F; F3 / Shift+F3 | Command+F; Command+G / Command+Shift+G, or F3 / Shift+F3 | ✓ |
 | Send now (file mode's manual send; daily mode's too, 0038) | Ctrl+Enter | Command+Enter | ✓ |
 | **F keys** (0029: never the only way to something, but for these three, which have nowhere else to be) | | | |
 | These keys: this keyboard's column of this table, built rows only; any key or a tap closes | F1 | F1 | ✓ |
@@ -172,7 +171,9 @@ Held keys repeat. A chord with Ctrl, Command, Alt or the Windows key types nothi
 - **Where Windows has no standard key**, Notepad++'s comes first, then VS Code's: Ctrl+L and Ctrl+Shift+K both delete the line (Notepad++ uses Ctrl+Shift+K for a block comment, which a plain-text editor does not have). Notepad++'s Ctrl+Up / Down scroll without moving the cursor; Word's paragraph moves were kept for them.
 - **Ctrl+; is not the spelling key on Windows** (0028): Word has none, and it is Excel's insert-the-date. F7 is.
 - **F keys are extra routes, not the only ones** (0029), except F1, F11 and F12, which have no other key: a 60% keyboard reaches them on its Fn layer, and some "for Mac" keyboards send media keys there unless Fn is held. F2, F4, F10 and Word's F12 (Save As) are not used: rename, repeat, a menu bar and Save As have no meaning here. F12 is page stats.
-- **Undo never removes anything from the log** (section 4). It appends a new changeset that reverses the last one, so every word typed stays in the history.
+- **Undo never removes anything from the log** (section 4). It appends a new changeset that reverses the last one, so every word typed stays in the history. *Built (0039):* the history is in RAM, until power-off -- the editor's own edits, not the log's changesets, so undo goes back by what was done rather than by flush. A step is one key's worth (a type-over and its letter, a paste, an indent of many lines), or typing up to where the next word starts, or a run of Backspace or Delete, with no 2 s pause in it; undo puts back what was selected. 1 MB of edits and 8192 of them are kept, the oldest let go first; one edit bigger than that forgets the history. A card whose text is put before RAM's (section 4, attach) clears it, since every position moves.
+- **No go to line** (0039): there is no room on the page for line numbers, so a line number would have nothing to point at. Ctrl+G and Command+L stay free.
+- **Find** (0039) is a bar in the status line's row: found as typed, from where the cursor was, ignoring case, the match selected; Enter or F3 next, Shift for the one before, round the end; Esc closes it with the match still selected; Cmd+F again closes it too. The query is kept until power-off, so F3 (Cmd+G) finds again with the bar shut.
 - **The selection** (0033) runs from where Shift was first held with a movement to the cursor, drawn behind the text as the spelling mark is; a selected newline shows as one cell. A movement without Shift ends it, and plain Left / Right go to its start / end. Typing, Enter and Tab replace it; Backspace and Delete, with or without the word modifier, delete it and only it. Any edit, and the spelling check, end it. Copy with nothing selected does nothing (Word's way, not VS Code's copy-the-line).
 - **The clipboard is RAM only**, one TEXT_MAX buffer in PSRAM, kept until power-off and never written to the card. Nothing outside the Tab5 can paste into it or from it. A paste that would pass the 256 KB limit does nothing.
 - **Not carried over from Word:** bold, italic, underline, alignment, styles, page breaks, tables, print. The text is plain.

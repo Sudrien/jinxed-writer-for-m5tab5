@@ -14,6 +14,8 @@ Not ready for human consumption yet. `writerdeck_spec.md` is the design;
   Windows' on a PC keyboard (Ctrl; the Windows key does nothing), the
   Mac's on an Apple one (Command and Option). Shift with any movement
   selects; Cmd+A, and Cmd+C / X / V with a clipboard kept until power-off.
+  Cmd+Z undoes and Cmd+Shift+Z (or Ctrl+Y) redoes; Tab and Shift+Tab
+  indent; Cmd+F finds, F3 (or Cmd+G) again.
 - **Nothing lost.** The document is a log of every edit, written twice
   (`.YYYY-MM-DD.md.h0` and `.h1`) and recovered from whichever twin is
   longer after a power cut; the `.md` is regenerated from it a few
