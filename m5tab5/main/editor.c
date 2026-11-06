@@ -19,7 +19,7 @@
  * With no card, or a failed write, s_text simply runs ahead of s_base
  * and the next flush that lands carries everything since.
  *
- * Spelling (spell.h) is checked only when asked, F7 or GUI+semicolon:
+ * Spelling (spell.h) is checked only when asked, F7 or Ctrl+semicolon:
  * the screen splits, the text above with the word marked, the word and
  * what it might be below. A correction is an ordinary edit, but logged
  * on its own and marked as the checker's (DOCLOG_SRC_SYMSPELL): what is
@@ -419,8 +419,7 @@ static void vertical(int dl)
 /* One key press (or repeat). True when the screen needs redrawing. */
 static bool key(uint8_t usage, uint8_t mods)
 {
-    const bool gui  = (mods & KBD_MOD_GUI)  != 0;
-    const bool ctrl = (mods & KBD_MOD_CTRL) != 0;
+    const bool cmd  = (mods & KBD_MOD_CMD)  != 0;     /* Ctrl, Windows, Command */
     const bool alt  = (mods & KBD_MOD_ALT)  != 0;
     const bool keep_col = usage == KBD_UP || usage == KBD_DOWN ||
                           usage == KBD_PAGEUP || usage == KBD_PAGEDOWN;
@@ -429,10 +428,9 @@ static bool key(uint8_t usage, uint8_t mods)
     layout();
     const int cl = cursor_line();
 
-    /* Text larger / smaller (0022), number row or keypad: GUI+= (GUI++)
-     * and GUI+-, and Ctrl as well (0023) -- a PC keyboard's zoom habit,
-     * as spec 5 takes Ctrl wherever GUI is for letters. */
-    if ((gui || ctrl) && (usage == KBD_EQUAL || usage == KBD_KP_PLUS ||
+    /* Text larger / smaller (0022), number row or keypad: Ctrl+= (Ctrl++)
+     * and Ctrl+- -- Ctrl, the Windows key or Command (0023, 0024). */
+    if (cmd && (usage == KBD_EQUAL || usage == KBD_KP_PLUS ||
                           usage == KBD_MINUS || usage == KBD_KP_MINUS)) {
         const int up = usage == KBD_EQUAL || usage == KBD_KP_PLUS;
         const int was = display_text_scale();
@@ -443,8 +441,9 @@ static bool key(uint8_t usage, uint8_t mods)
         return true;
     }
 
-    /* GUI is the app modifier (spec section 5): Windows key or Command. */
-    if (gui) {
+    /* The shortcut modifier (spec section 5, 0024): Ctrl, the Windows key
+     * or Command, all one. */
+    if (cmd) {
         switch (usage) {
         case KBD_LEFT:      s_cur = s_ls[cl]; return true;
         case KBD_RIGHT:     s_cur = line_cursor_max(cl); return true;
@@ -476,8 +475,8 @@ static bool key(uint8_t usage, uint8_t mods)
     default:            break;
     }
 
-    /* Ctrl and Alt chords type nothing; they are left for shortcuts. */
-    if (ctrl || alt) return false;
+    /* Alt chords type nothing; they are left for word movement. */
+    if (alt) return false;
     const char c = kbd_ascii(usage, mods, s_caps);
     if (c == '\n' || (c >= 0x20 && c < 0x7F)) {
         insert(&c, 1);
@@ -844,7 +843,7 @@ static void spell_view(void)
             continue;
         }
 
-        const bool gui = (ev.mods & (KBD_MOD_GUI | KBD_MOD_CTRL)) != 0;
+        const bool gui = (ev.mods & KBD_MOD_CMD) != 0;
         const bool plain = (ev.mods & (KBD_MOD_GUI | KBD_MOD_CTRL | KBD_MOD_ALT)) == 0;
         int pick = -1;
         bool next = false;
@@ -965,7 +964,7 @@ void editor_run(void)
         kbd_event_t ev;
         bool dirty = false;
         if (kbd_get(&ev, wait)) {
-            if (ev.down && ev.usage == KBD_COMMA && (ev.mods & KBD_MOD_GUI)) {
+            if (ev.down && ev.usage == KBD_COMMA && (ev.mods & KBD_MOD_CMD)) {
                 open_settings = true;       /* spec 7: from the keyboard too */
             } else if (ev.down && (ev.usage == KBD_F7 || (ev.usage == KBD_SEMICOLON &&
                                    (ev.mods & (KBD_MOD_GUI | KBD_MOD_CTRL))))) {

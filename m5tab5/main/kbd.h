@@ -41,6 +41,10 @@ extern "C" {
 #define KBD_MOD_ALT     (KBD_MOD_LALT   | KBD_MOD_RALT)
 /* Windows key and Command send the same usage. Spec section 5. */
 #define KBD_MOD_GUI     (KBD_MOD_LGUI   | KBD_MOD_RGUI)
+/* The shortcut modifier (0024): Ctrl, the Windows key or Command, one
+ * meaning for all three, so a PC's Ctrl habits and a Mac's Command ones
+ * both work and the Windows key is Ctrl. Alt (Option) is the word one. */
+#define KBD_MOD_CMD     (KBD_MOD_CTRL   | KBD_MOD_GUI)
 
 typedef struct {
     uint8_t usage;      /* HID keyboard-page usage, 0x04 'a' and up */

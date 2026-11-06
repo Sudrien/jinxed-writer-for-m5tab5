@@ -400,7 +400,7 @@ static page_t layout(bool draw, int scroll)
                          DISPLAY_SCALE_MIN + i == display_text_scale() ? COL_GO : COL_BTN);
     }
     y += BTN_H + 16;
-    TXT(y, "Text size in the editor; GUI+= and GUI+- there.", COL_DIM);
+    TXT(y, "Text size in the editor; Ctrl+= and Ctrl+- there.", COL_DIM);
     y += LINE_H + SECTION_GAP;
 
     /* Libraries */
@@ -478,7 +478,7 @@ void settings_page(void)
         if (sender_gen() != seen_gen) { seen_gen = sender_gen(); redraw = true; }
 
         if (in.kind == IN_KEY) {
-            const bool gui = (in.mods & KBD_MOD_GUI) != 0;
+            const bool gui = (in.mods & KBD_MOD_CMD) != 0;   /* Ctrl, Windows, Command (0024) */
             switch (in.usage) {
             case KBD_ESCAPE:   goto out;
             case KBD_COMMA:    if (gui) goto out; break;
@@ -494,10 +494,10 @@ void settings_page(void)
                 load_mail();
                 redraw = true;
                 break;
-            case KBD_T:         /* GUI+T: send a test (spec 5's GUI shortcuts) */
+            case KBD_T:         /* Ctrl+T: send a test (spec 5) */
                 if (gui) sender_test();
                 break;
-            case KBD_R:         /* GUI+R: a quarter turn clockwise */
+            case KBD_R:         /* Ctrl+R: a quarter turn clockwise */
                 if (gui) {
                     display_set_rotation((display_rotation() + 1) % 4);
                     want = 0;

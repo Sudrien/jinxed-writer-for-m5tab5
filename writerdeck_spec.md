@@ -103,14 +103,14 @@ Which mode the device runs in is chosen on the **settings page** (section 7) and
 - **Highlighting has three modes:** none, markdown with `$math$`, TeX. Default for a new note is **none**. The mode comes from the document's extension when the log is created (`.md`, `.tex`, otherwise none), is stored in the log header, and is changeable from the settings page. **There are no hotkeys for switching modes yet.** Leave a clear hook for adding one later.
 - **Highlighter:** line-based tokenizer on visible lines only, with small carried state for open `$$` blocks and code fences, and a bounded look-back for multi-line constructs. Muted palette: 2-3 dim tones (structure, math/commands, comments).
 - **Math rules (Pandoc style):** an opening `$` must be followed by a non-space; a closing `$` must be preceded by a non-space and not followed by a digit; `\$` is a literal dollar. Inline `$...$` never crosses a line. An unmatched `$` is plain text. Backtick code spans and fences win over math.
-- **Spelling is checked on demand, never as you type:** no marks in the text. F7 (Word) or GUI+; (the Mac's "check document now"; Ctrl+; too) splits the screen: the text in the top half with the word marked, the word and up to five suggestions in the bottom half. The check starts at the word at the cursor and goes round the document to it once. A change is an ordinary edit, but logged on its own and attributed to the checker (section 4); if it cannot be flushed apart from the user's edits around it (no card), the combined changeset is the user's. A Capitalised word gets a Capitalised suggestion.
+- **Spelling is checked on demand, never as you type:** no marks in the text. F7 (Word) or Ctrl+; (Command+; is the Mac's "check document now") splits the screen: the text in the top half with the word marked, the word and up to five suggestions in the bottom half. The check starts at the word at the cursor and goes round the document to it once. A change is an ordinary edit, but logged on its own and attributed to the checker (section 4); if it cannot be flushed apart from the user's edits around it (no card), the combined changeset is the user's. A Capitalised word gets a Capitalised suggestion.
 - **Not checked, as not prose:** single letters, words in capitals (acronyms), words with a capital inside (identifiers), and any word in a run of non-space characters holding a digit, `/`, `\`, `@`, `_`, a backtick, `<`, `>` or `=` (paths, addresses, code, TeX). A contraction is right when its stem is (*don't*, *isn't*, *we'll*).
 - **The checker is SymSpell** (edit distance 2, prefix 7, ranked by distance then frequency), written for this board. symspell-c99 itself is not linked: it allocates two 128 MB arenas when created and holds about 45 MB at distance 2, against 32 MB of PSRAM. Instead the index is built once on a computer by `m5tab5/tools/spelldict.c` from a word-frequency list, and lives on the card as `jinxed/spell/english.sym`. From symspell-c99's 86,060-word `dictionaries/dictionary.txt` that is 15 MB on the card; its word list, 2 MB, is read into PSRAM at the first check and stays. The delete index stays on the card, read at most ~60 small pieces per misspelling, the volume leased for each one. Checking that a word is right touches only RAM.
 - **No dictionary on the card:** the view says so and offers **D** to download it. The send task (section 6) brings Wi-Fi up as for a send and hands the download to feckless's `feckless_fetch` (feckless 9003): `english.sym` from `Sudrien/jinxed-writer-spellcheck-dictionaries` at a pinned commit (`SPELL_DICT_URL` in `spell.h`, a raw.githubusercontent.com URL), https only, TLS checked against IDF's CA bundle, up to three connections in 1 MB stripes. It is written to `english.sym.part`, with a map of what has arrived in `english.sym.part.id`; when whole it is checked (header, and its sections adding up to the length) and renamed into place, and the check starts. A failure keeps the part file, and **D** again carries on from it; so does a download cut off at ten minutes. A file that fails the check is removed. A dictionary already there is never touched until the new one has passed. **The volume is held for the whole download**, the one exception to section 1's lease: the part file stays open throughout, and an unmount with a file open would be a use-after-free inside FatFs, so a pulled card waits for the download to fail and let go. Any key closes the view and the download goes on; a new dictionary is a new commit there, named in the firmware.
 - **Credit** for the algorithm, its C port and the dictionary's sources is in `CREDITS.md`; the dictionary's own notices travel with it, in its repository.
 - **The user's words** are `jinxed/spell/words.txt`, one per line, editable by hand. "Ignore all" lasts until power-off.
 
-**Shortcuts.** The modifier for app shortcuts is the **GUI key** (Windows key on PC keyboards, Command on Mac keyboards). Both send the same HID modifier, so they are handled identically. **Ctrl** and **Alt** (Option on a Mac keyboard: the same HID modifier) are the word-level modifiers. A Mac keyboard needs no separate bindings, only the Mac habits below. Do not assign any mode-switch hotkey.
+**Shortcuts.** The modifier for app shortcuts is **Ctrl**, and the **Windows key** and **Command** are the same key to this editor (0024): HID calls the last two GUI and sends one modifier for both, so they cannot be told apart, and each does whatever Ctrl does. Below, **Ctrl** means any of the three. **Alt** (Option on a Mac keyboard: the same HID modifier) is the word-level modifier. A Mac keyboard needs no separate bindings. Do not assign any mode-switch hotkey.
 
 *In the editor, today:*
 
@@ -122,37 +122,37 @@ Which mode the device runs in is chosen on the **settings page** (section 7) and
 | Backspace / Delete | Delete before / after the cursor |
 | Tab | Insert four spaces |
 | Caps Lock | Toggle caps (shown in the status line) |
-| GUI+Left / Right | Line start / end |
-| GUI+Up / Down | Document start / end |
-| GUI+Backspace | Delete the whole line |
-| GUI+= / GUI+-, or Ctrl | Text larger / smaller, number row or keypad (0022, 0023) |
-| GUI+, | Open the settings page |
-| F7, or GUI+; | Check spelling (above) |
+| Ctrl+Left / Right | Line start / end |
+| Ctrl+Up / Down | Document start / end |
+| Ctrl+Backspace | Delete the whole line |
+| Ctrl+= / Ctrl+- | Text larger / smaller, number row or keypad (0022) |
+| Ctrl+, | Open the settings page |
+| F7, or Ctrl+; | Check spelling (above) |
 
 Held keys repeat. Ctrl and Alt chords type nothing.
 
-*On the settings page, today:* Up/Down scroll; PageUp/PageDown scroll a screen; Home/End and GUI+Up/Down jump to the top and bottom; Enter opens the email form; GUI+T sends a test email; GUI+R turns the screen a quarter clockwise; Esc or GUI+, closes the page. In the email form: Tab / Shift+Tab or Up / Down move between fields, Enter saves, Esc cancels.
+*On the settings page, today:* Up/Down scroll; PageUp/PageDown scroll a screen; Home/End and Ctrl+Up/Down jump to the top and bottom; Enter opens the email form; Ctrl+T sends a test email; Ctrl+R turns the screen a quarter clockwise; Esc or Ctrl+, closes the page. In the email form: Tab / Shift+Tab or Up / Down move between fields, Enter saves, Esc cancels.
 
-*In the spelling view, today:* 1-9 change the word to that suggestion; Up/Down choose one and Enter takes it; **E** opens a field with the word in it, to type it as it should be when no suggestion is (letters, Backspace, Delete, Left/Right, Home/End, Caps Lock; Enter changes the word to what is typed, Esc goes back to the suggestions) -- a word typed is the user's change in the log, not the checker's; Tab, Space or Right skip the word; I ignores it everywhere until power-off; A adds it to the user's words; Esc, F7 or GUI+; close. When nothing is left, any key closes.
+*In the spelling view, today:* 1-9 change the word to that suggestion; Up/Down choose one and Enter takes it; **E** opens a field with the word in it, to type it as it should be when no suggestion is (letters, Backspace, Delete, Left/Right, Home/End, Caps Lock; Enter changes the word to what is typed, Esc goes back to the suggestions) -- a word typed is the user's change in the log, not the checker's; Tab, Space or Right skip the word; I ignores it everywhere until power-off; A adds it to the user's words; Esc, F7 or Ctrl+; close. When nothing is left, any key closes.
 
 *Planned, not yet implemented*, modelled on MS Word and on the Mac text-field habits. Each row is "Word / Mac":
 
 | Does | Keys |
 |---|---|
-| Previous / next word | Ctrl+Left / Right, and Alt+Left / Right |
-| Previous / next paragraph | Ctrl+Up / Down, and Alt+Up / Down |
-| Delete previous / next word | Ctrl+Backspace / Delete, and Alt+Backspace / Delete |
+| Previous / next word | Alt+Left / Right |
+| Previous / next paragraph | Alt+Up / Down |
+| Delete previous / next word | Alt+Backspace / Delete |
 | Extend the selection | Shift with any movement above (by character, word, line, document) |
-| Select all, copy, cut, paste | GUI+A / C / X / V |
-| Undo / redo | GUI+Z / GUI+Shift+Z; Ctrl+Y also redoes |
-| Save now (flush the log, then export) | GUI+S |
-| Find, next, previous | GUI+F, then F3 / Shift+F3 |
-| Go to line | GUI+G |
-| Send now (file mode's manual send) | GUI+Enter |
+| Select all, copy, cut, paste | Ctrl+A / C / X / V |
+| Undo / redo | Ctrl+Z / Ctrl+Shift+Z; Ctrl+Y also redoes |
+| Save now (flush the log, then export) | Ctrl+S |
+| Find, next, previous | Ctrl+F, then F3 / Shift+F3 |
+| Go to line | Ctrl+G |
+| Send now (file mode's manual send) | Ctrl+Enter |
 | Remove up to four leading spaces | Shift+Tab |
 
 *Decisions recorded.*
-- For letter shortcuts, **Ctrl is accepted wherever GUI is**, so a PC keyboard's Word habits (Ctrl+Z, Ctrl+S, Ctrl+F) work. For the arrow keys the two differ on purpose: GUI means the whole line or document, as on a Mac; Ctrl and Alt mean a word or paragraph, as in Word.
+- **Ctrl, the Windows key and Command are one modifier** (0024), everywhere, so a PC keyboard's Word habits (Ctrl+Z, Ctrl+S, Ctrl+F) and a Mac's Command ones both work. With the arrows it means the whole line or document, as Command does on a Mac; a word or paragraph is **Alt** (Option), as on a Mac. Word's Ctrl+Left / Right for a word is the one PC habit given up for this.
 - **Undo never removes anything from the log** (section 4). It appends a new changeset that reverses the last one, so every word typed stays in the history.
 - **Selection comes first.** Copy, cut, paste, the Shift movements and Word-style delete-word all rest on the editor having a selection, and a RAM clipboard. Until then those rows stay planned.
 - **Not carried over from Word:** bold, italic, underline, alignment, styles, page breaks, tables, print. The text is plain.
@@ -185,7 +185,7 @@ Reached from a **gear icon** (touch) and also from the keyboard. At minimum:
 - Daily-mode flush interval (default 1 h; 2 h backoff cap is fixed)
 - Highlight mode for the current document (none / markdown+math / TeX)
 - **Which way up** (0019): Landscape, Landscape flipped, Portrait, Portrait flipped -- four buttons, the current one lit; a tap turns the screen and the touch at once, and the angle is kept in NVS (namespace `jinxed`) and applied from the first frame of the next boot. Landscape out of the box. The editor re-measures its columns and rows on leaving the page. Narrow, the page and the spelling pane wrap what does not fit: the spelling legend breaks between its keys, the status lines take two lines, a library is two lines (its name, then checkout and licence), and the typing field scrolls with its cursor.
-- **Text size** (0022): the editor's text, ark12 at 2 to 5 times (24 to 60 px), 3 out of the box -- a row of four buttons, or GUI+= / GUI+- in the editor; kept in NVS (`jinxed`, `scale`). The editor and the spelling view take it, and the status line, the gear and the spelling view's small print go one step smaller (never under 2, and no larger than the status line fits across: at most 3 landscape, 2 portrait). The settings page keeps its own sizes.
+- **Text size** (0022): the editor's text, ark12 at 2 to 5 times (24 to 60 px), 3 out of the box -- a row of four buttons, or Ctrl+= / Ctrl+- in the editor; kept in NVS (`jinxed`, `scale`). The editor and the spelling view take it, and the status line, the gear and the spelling view's small print go one step smaller (never under 2, and no larger than the status line fits across: at most 3 landscape, 2 portrait). The settings page keeps its own sizes.
 - **Theme** (0021): Dark (the default, section 5's dim low-contrast one), Light, Green console, Orange console -- four buttons under the rotation, the current one lit; kept in NVS (namespace `jinxed`, key `theme`) and applied from the first frame of the next boot. The editor, the spelling view, the settings page and the email form all follow it.
 - Library versions: render the table generated by `feckless_libversions` (`libversions.h` / `libversions.tsv`) with versions and licences, as the library provides it. Drawing it is the app's job.
 - Set the clock (the RTC is never synced; see section 4)
@@ -200,7 +200,7 @@ Touch is for this page, the file picker, and scrolling. The keyboard does everyt
 3. **SMTP/TLS from the standalone build,** including the time from Wi-Fi up to message sent, against the 45 s cap in section 3, and that a background send does not stall typing.
 4. **NVS encryption** is present and working in this build for the credentials, as it is for the Wi-Fi list.
 5. **SD behavior when the card is removed** mid-session: the editor keeps buffering and the log catches up when a card returns. Also verify mirror recovery by cutting power mid-append at random points and checking that one twin always survives and the other is repaired.
-6. **USB HID keyboard layouts:** at least US ANSI, with Windows-key and Command-key shortcuts both working.
+6. **USB HID keyboard layouts:** at least US ANSI, with Ctrl, Windows-key and Command-key shortcuts all working alike.
 
 ## 9. Out of scope for now
 

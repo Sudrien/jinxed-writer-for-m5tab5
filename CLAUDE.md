@@ -227,3 +227,4 @@ worked. A tag move keeps that line.
 - 0021 Settings: Dark, Light, Green console and Orange console themes
 - 0022 Editor: text size 2-5, GUI+= / GUI+-, the footer and gear with it
 - 0023 Editor: Ctrl+= / Ctrl+- size the text too
+- 0024 Keys: Ctrl, the Windows key and Command are one shortcut modifier
