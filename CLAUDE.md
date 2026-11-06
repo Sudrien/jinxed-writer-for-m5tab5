@@ -176,7 +176,9 @@ that happens. Know which kind you are widening.
 
 **The volume is leased per operation and never held open** (spec
 section 1): `storage_hold_brief()` before checking presence and opening,
-`storage_release_brief()` after the close.
+`storage_release_brief()` after the close. The one operation that is
+long is the dictionary download (spec 5): feckless_fetch keeps its part
+file open throughout, so the hold is taken around the whole download.
 
 ## Outside this repository
 
@@ -214,3 +216,4 @@ not be updated.
 - 0014 CREDITS.md: SymSpell, symspell-c99, and the dictionary's sources
 - 0015 Spelling: the download's connect waits longer and tries again
 - 0016 Manifest: esp_hosted below 3.1.0, whose fixed RX buffers drop M5's batched reads
+- 0017 Spelling: the dictionary through feckless_fetch, on feckless-libs v0.9.2

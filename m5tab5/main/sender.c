@@ -14,20 +14,16 @@
  */
 #include "sender.h"
 
-#include <errno.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <unistd.h>
 
 #include "esp_attr.h"
-#include "esp_crt_bundle.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
-#include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "ethernet.h"
+#include "feckless_fetch.h"
 #include "feckless_net.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -53,23 +49,14 @@ static const char *TAG = "sender";
 /* The saved networks' namespace: Avoidant's (and Defeatist's). */
 #define NET_NS          "defeatist"
 
-/* The dictionary fetch. Received into PSRAM and written in pieces this
- * big, the card leased for each piece, never across the fetch (spec 1). */
-#define FETCH_PIECE     (64 * 1024)
-#define FETCH_HOPS      (5)         /* raw.githubusercontent.com answers directly;
-                                     * a redirect is still followed, should it move */
-/* The radio's wait is a send's (spec 3); the transfer gets this long,
- * and stalls for this long, before it is given up. */
+/* The dictionary download (spec 5), through feckless_fetch (feckless
+ * 9003): its connections, resume and writer, our radio and our volume.
+ * Up to ten minutes; then it is paused, its part file kept, and the next
+ * D carries on from it. A first connect that fails is tried again, as
+ * 0015 did: feckless_fetch retries a connection that breaks part way,
+ * not one that never opened. */
+#define FETCH_CONNS     (3)
 #define FETCH_MAX_MS    (10 * 60 * 1000)
-#define FETCH_STALL_MS  (30 * 1000)
-#define FETCH_MAX_LEN   (64L * 1024 * 1024)
-/* Connecting: each try waits this long for TCP and the TLS handshake,
- * and a failed one is tried again this many times in all. On the board a
- * handshake has lost its certificate burst to esp_hosted (an SDIO read
- * of 3584 bytes against 1536-byte staging slots, dropped whole), and 15
- * s was not enough for TCP to recover it; a fresh connection is a fresh
- * chance at the burst. */
-#define FETCH_CONNECT_MS (30 * 1000)
 #define FETCH_TRIES     (3)
 #define FETCH_RETRY_MS  (2000)
 
@@ -166,146 +153,50 @@ static void test_send(void)
 
 /* ---- the dictionary ------------------------------------------------------ */
 
-/* Every directory down to `dir`. A level that exists already, or the
- * mount point, fails harmlessly; the fopen() after says what matters. */
-static void make_dirs(const char *dir)
+/* VERIFY, on feckless_fetch's task: the part file is whole -- is it a
+ * dictionary, header and sections adding up to its length? The volume is
+ * held, by fetch_dict(). Refused, the part file goes. */
+static bool fetch_event(feckless_fetch_ev_t *ev)
 {
-    char p[sizeof(SPELL_DIR)];
-    for (size_t i = 1; dir[i - 1] != '\0' && i < sizeof(p); i++) {
-        if (dir[i] != '/' && dir[i] != '\0') continue;
-        memcpy(p, dir, i);
-        p[i] = '\0';
-        if (mkdir(p, 0777) != 0 && errno != EEXIST) ESP_LOGD(TAG, "mkdir %s: errno %d", p, errno);
-    }
+    if (ev->kind == FECKLESS_FETCH_EV_VERIFY) return spell_file_ok(ev->part, (long)ev->size);
+    return true;
 }
 
-/* Append (or, first, write) one piece to the part file. */
-static bool put_piece(const char *path, const char *buf, size_t n, bool first)
+/* One download, start to end: runs until feckless_fetch stops. */
+static feckless_fetch_state_t fetch_once(const feckless_fetch_opts_t *o, int64_t t0,
+                                         char *why, size_t why_size)
 {
-    storage_hold_brief(STORAGE_SD);
-    bool ok = false;
-    if (storage_present(STORAGE_SD)) {
-        if (first) make_dirs(SPELL_DIR);
-        FILE *f = fopen(path, first ? "wb" : "ab");
-        if (f) {
-            ok = fwrite(buf, 1, n, f) == n;
-            ok = (fflush(f) == 0) && ok;
-            ok = (fsync(fileno(f)) == 0) && ok;
-            ok = (fclose(f) == 0) && ok;
+    if (!feckless_fetch_start(o)) {
+        feckless_fetch_why(why, why_size);
+        return FECKLESS_FETCH_FAILED;
+    }
+    set_line("Downloading the dictionary...");
+    uint32_t seen = 0;
+    bool paused = false;
+    feckless_fetch_state_t st;
+    int64_t got = 0, total = -1;
+    uint32_t gen = 0;
+    while ((st = feckless_fetch_state(NULL, &got, &total, NULL, 0, &gen)) == FECKLESS_FETCH_RUNNING) {
+        if (gen != seen) {
+            seen = gen;
+            char line[64];
+            if (total > 0) snprintf(line, sizeof line, "Downloading the dictionary: %d%%", (int)(got * 100 / total));
+            else           snprintf(line, sizeof line, "Downloading the dictionary: %d KB", (int)(got / 1024));
+            set_line(line);
         }
-    }
-    storage_release_brief(STORAGE_SD);
-    return ok;
-}
-
-/* Check the part file and put it where spell_load() looks. */
-static bool settle(const char *part, const char *dict, long size)
-{
-    storage_hold_brief(STORAGE_SD);
-    bool ok = storage_present(STORAGE_SD) && spell_file_ok(part, size);
-    if (ok) {
-        /* FatFs cannot rename over a file: unlink, then rename. */
-        unlink(dict);
-        ok = rename(part, dict) == 0;
-    } else {
-        unlink(part);
-    }
-    storage_release_brief(STORAGE_SD);
-    return ok;
-}
-
-/* GET the dictionary into `part`, following redirects. Its length, or -1
- * with `why` set. */
-static long fetch(esp_http_client_handle_t c, const char *part, char *buf, int64_t t0,
-                  char *why, size_t why_size)
-{
-    int status = 0;
-    int64_t len = 0;
-    for (int hop = 0, tries = 0; hop < FETCH_HOPS; ) {
-        const esp_err_t err = esp_http_client_open(c, 0);
-        if (err != ESP_OK) {
-            esp_http_client_close(c);
-            if (++tries >= FETCH_TRIES) {
-                snprintf(why, why_size, "could not connect");
-                return -1;
-            }
-            ESP_LOGW(TAG, "connect failed (%s), try %d of %d in %d ms",
-                     esp_err_to_name(err), tries + 1, FETCH_TRIES, FETCH_RETRY_MS);
-            set_line("Downloading the dictionary: connecting again...");
-            vTaskDelay(pdMS_TO_TICKS(FETCH_RETRY_MS));
-            continue;
+        if (!paused && esp_timer_get_time() - t0 > (int64_t)FETCH_MAX_MS * 1000) {
+            feckless_fetch_pause();             /* kept: the next D carries on */
+            paused = true;
         }
-        hop++;
-        len = esp_http_client_fetch_headers(c);
-        status = esp_http_client_get_status_code(c);
-        if (status < 300 || status > 308) break;
-        if (esp_http_client_set_redirection(c) != ESP_OK) break;
-        int left;
-        esp_http_client_flush_response(c, &left);
-        esp_http_client_close(c);
+        vTaskDelay(pdMS_TO_TICKS(POLL_MS));
     }
-    if (status >= 300 && status <= 308) {
-        snprintf(why, why_size, "too many redirects");
-        return -1;
-    }
-    if (status != 200) {
-        snprintf(why, why_size, "the server said %d", status);
-        return -1;
-    }
-    if (len <= 0 || len > FETCH_MAX_LEN) {
-        snprintf(why, why_size, "no usable length");
-        return -1;
-    }
-
-    long got = 0;
-    size_t fill = 0;
-    int shown = -1;
-    int64_t last = esp_timer_get_time();
-    while (got < len) {
-        const int64_t now = esp_timer_get_time();
-        if (now - t0 > (int64_t)FETCH_MAX_MS * 1000 || now - last > (int64_t)FETCH_STALL_MS * 1000) {
-            snprintf(why, why_size, "too slow");
-            return -1;
-        }
-        const int r = esp_http_client_read(c, buf + fill, (int)(FETCH_PIECE - fill));
-        if (r < 0) {
-            snprintf(why, why_size, "the connection broke");
-            return -1;
-        }
-        if (r == 0) {
-            if (esp_http_client_is_complete_data_received(c)) break;
-            vTaskDelay(pdMS_TO_TICKS(10));
-            continue;
-        }
-        last = esp_timer_get_time();
-        fill += (size_t)r;
-        if (fill == FETCH_PIECE || got + (long)fill >= len) {
-            if (!put_piece(part, buf, fill, got == 0)) {
-                snprintf(why, why_size, "could not write the card");
-                return -1;
-            }
-            got += (long)fill;
-            fill = 0;
-            const int pc = (int)(got * 100 / len);
-            if (pc != shown) {
-                char line[64];
-                snprintf(line, sizeof line, "Downloading the dictionary: %d%%", pc);
-                set_line(line);
-                shown = pc;
-            }
-        }
-    }
-    if (got != len) {
-        snprintf(why, why_size, "cut short");
-        return -1;
-    }
-    return got;
+    feckless_fetch_why(why, why_size);
+    return st;
 }
 
 static void fetch_dict(void)
 {
     const int64_t t0 = esp_timer_get_time();
-    static const char part[] = SPELL_DIR "/" SPELL_DICT ".part";
     static const char dict[] = SPELL_DIR "/" SPELL_DICT;
     s_fetched = false;
 
@@ -314,53 +205,56 @@ static void fetch_dict(void)
     while (!online() && esp_timer_get_time() - t0 < (int64_t)MAILSEND_TIMEOUT_MS * 1000) {
         vTaskDelay(pdMS_TO_TICKS(POLL_MS));
     }
-    char why[48] = "";
-    char *buf = NULL;
-    esp_http_client_handle_t c = NULL;
-    long size = -1;
+    char why[64] = "";
+    feckless_fetch_state_t st = FECKLESS_FETCH_FAILED;
     if (!online()) {
         snprintf(why, sizeof why, "no wifi");
-    } else if (!(buf = heap_caps_malloc(FETCH_PIECE, MALLOC_CAP_SPIRAM))) {
-        snprintf(why, sizeof why, "out of memory");
     } else {
-        set_line("Downloading the dictionary...");
-        const esp_http_client_config_t cfg = {
-            .url               = SPELL_DICT_URL,
-            .crt_bundle_attach = esp_crt_bundle_attach,
-            .timeout_ms        = FETCH_CONNECT_MS,
-            /* The asset host's redirect is a long signed URL, in the
-             * Location header in and the request line out. */
-            .buffer_size       = 4096,
-            .buffer_size_tx    = 4096,
-        };
-        c = esp_http_client_init(&cfg);
-        if (!c) snprintf(why, sizeof why, "out of memory");
-        else    size = fetch(c, part, buf, t0, why, sizeof why);
-    }
-    if (c) {
-        esp_http_client_close(c);
-        esp_http_client_cleanup(c);
-    }
-    heap_caps_free(buf);
-    radio(false);
-
-    if (size <= 0) {
-        /* Nothing half-written is left on the card. */
+        /*
+         * The volume is held for the whole download, not leased per piece
+         * as spec 1 has it: feckless_fetch keeps the part file open
+         * throughout, and an unmount with a FILE open is a use-after-free
+         * inside FatFs (storage.h). Held, a pulled card is marked absent
+         * and its unmount waits for the release; the writes fail and the
+         * download stops, its part file kept for a card put back.
+         */
         storage_hold_brief(STORAGE_SD);
-        if (storage_present(STORAGE_SD)) unlink(part);
+        const feckless_fetch_opts_t o = {
+            .url        = SPELL_DICT_URL,
+            .path       = dict,
+            .conns      = FETCH_CONNS,
+            .https_only = true,
+            .cb         = fetch_event,
+        };
+        for (int tries = 0; tries < FETCH_TRIES; tries++) {
+            if (!storage_present(STORAGE_SD)) {
+                snprintf(why, sizeof why, "no card");
+                break;
+            }
+            st = fetch_once(&o, t0, why, sizeof why);
+            if (st != FECKLESS_FETCH_FAILED || strcmp(why, "could not connect") != 0) break;
+            if (tries + 1 < FETCH_TRIES) {
+                ESP_LOGW(TAG, "could not connect; try %d of %d in %d ms", tries + 2, FETCH_TRIES, FETCH_RETRY_MS);
+                set_line("Downloading the dictionary: connecting again...");
+                vTaskDelay(pdMS_TO_TICKS(FETCH_RETRY_MS));
+            }
+        }
         storage_release_brief(STORAGE_SD);
     }
-    if (size > 0 && settle(part, dict, size)) {
+    radio(false);
+
+    if (st == FECKLESS_FETCH_DONE) {
         s_fetched = true;
         set_line("Dictionary downloaded.");
+    } else if (st == FECKLESS_FETCH_PAUSED) {
+        set_line("Dictionary download paused after ten minutes; D carries on.");
     } else {
-        if (size > 0) snprintf(why, sizeof why, "the file is not a dictionary");
         char line[sizeof s_line];
-        snprintf(line, sizeof line, "Dictionary not downloaded: %s.", why);
+        snprintf(line, sizeof line, "Dictionary not downloaded: %s.", why[0] ? why : "it failed");
         set_line(line);
     }
-    ESP_LOGI(TAG, "dictionary fetch done in %lld ms, %ld bytes",
-             (long long)((esp_timer_get_time() - t0) / 1000), size);
+    ESP_LOGI(TAG, "dictionary download ended in %lld ms (%d)",
+             (long long)((esp_timer_get_time() - t0) / 1000), (int)st);
 }
 
 static void send_task(void *arg)
