@@ -63,6 +63,15 @@ static const char *TAG = "sender";
 #define FETCH_MAX_MS    (10 * 60 * 1000)
 #define FETCH_STALL_MS  (30 * 1000)
 #define FETCH_MAX_LEN   (64L * 1024 * 1024)
+/* Connecting: each try waits this long for TCP and the TLS handshake,
+ * and a failed one is tried again this many times in all. On the board a
+ * handshake has lost its certificate burst to esp_hosted (an SDIO read
+ * of 3584 bytes against 1536-byte staging slots, dropped whole), and 15
+ * s was not enough for TCP to recover it; a fresh connection is a fresh
+ * chance at the burst. */
+#define FETCH_CONNECT_MS (30 * 1000)
+#define FETCH_TRIES     (3)
+#define FETCH_RETRY_MS  (2000)
 
 typedef enum { JOB_TEST, JOB_DICT } job_t;
 
@@ -212,11 +221,21 @@ static long fetch(esp_http_client_handle_t c, const char *part, char *buf, int64
 {
     int status = 0;
     int64_t len = 0;
-    for (int hop = 0; hop < FETCH_HOPS; hop++) {
-        if (esp_http_client_open(c, 0) != ESP_OK) {
-            snprintf(why, why_size, "could not connect");
-            return -1;
+    for (int hop = 0, tries = 0; hop < FETCH_HOPS; ) {
+        const esp_err_t err = esp_http_client_open(c, 0);
+        if (err != ESP_OK) {
+            esp_http_client_close(c);
+            if (++tries >= FETCH_TRIES) {
+                snprintf(why, why_size, "could not connect");
+                return -1;
+            }
+            ESP_LOGW(TAG, "connect failed (%s), try %d of %d in %d ms",
+                     esp_err_to_name(err), tries + 1, FETCH_TRIES, FETCH_RETRY_MS);
+            set_line("Downloading the dictionary: connecting again...");
+            vTaskDelay(pdMS_TO_TICKS(FETCH_RETRY_MS));
+            continue;
         }
+        hop++;
         len = esp_http_client_fetch_headers(c);
         status = esp_http_client_get_status_code(c);
         if (status < 300 || status > 308) break;
@@ -308,7 +327,7 @@ static void fetch_dict(void)
         const esp_http_client_config_t cfg = {
             .url               = SPELL_DICT_URL,
             .crt_bundle_attach = esp_crt_bundle_attach,
-            .timeout_ms        = 15000,
+            .timeout_ms        = FETCH_CONNECT_MS,
             /* The asset host's redirect is a long signed URL, in the
              * Location header in and the request line out. */
             .buffer_size       = 4096,
