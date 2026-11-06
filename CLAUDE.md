@@ -233,3 +233,4 @@ worked. A tag move keeps that line.
 - 0027 Keys: Mac habits on an Apple keyboard, Word's on any other; words and paragraphs
 - 0028 Keys: the Windows key and Alt do nothing; Ctrl+L deletes a line; F7 only on Windows
 - 0029 Editor: F1 the keys, F11 a bare page, F12 page stats
+- 0030 Manifest: feckless-libs v0.9.5, for styled text
