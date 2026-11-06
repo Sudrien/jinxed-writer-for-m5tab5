@@ -20,6 +20,7 @@ static const char *TAG = "display";
 #define NVS_ROT     "rotation"
 #define NVS_THEME   "theme"
 #define NVS_SCALE   "scale"
+#define NVS_MD      "markdown"
 
 static int s_rot = DISPLAY_ROTATION_DEFAULT;
 
@@ -68,6 +69,18 @@ int display_theme(void) { return s_theme; }
 static int s_scale = DISPLAY_SCALE_DEFAULT;
 
 int display_text_scale(void) { return s_scale; }
+
+static bool s_md = true;
+
+bool display_markdown(void) { return s_md; }
+
+void display_set_markdown(bool on)
+{
+    s_md = on;
+    if (nvsh_set_u8(NVS_NS, NVS_MD, on ? 1 : 0) != ESP_OK) {
+        ESP_LOGW(TAG, "markdown setting not kept; it holds until power-off");
+    }
+}
 
 /* A step under the text, as large as the status line still fits across
  * the screen this way up: "no keyboard", "caps" at 15 glyphs and "not
@@ -131,6 +144,7 @@ esp_err_t display_init(void)
     }
     if (nvsh_get_u8(NVS_NS, NVS_SCALE, &q) == ESP_OK &&
         q >= DISPLAY_SCALE_MIN && q <= DISPLAY_SCALE_MAX) s_scale = q;
+    if (nvsh_get_u8(NVS_NS, NVS_MD, &q) == ESP_OK) s_md = q != 0;
 
     /* Paint before light: the backlight stays at zero until there is a
      * picture, so nothing flashes at power-on. */

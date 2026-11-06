@@ -234,3 +234,4 @@ worked. A tag move keeps that line.
 - 0028 Keys: the Windows key and Alt do nothing; Ctrl+L deletes a line; F7 only on Windows
 - 0029 Editor: F1 the keys, F11 a bare page, F12 page stats
 - 0030 Manifest: feckless-libs v0.9.5, for styled text
+- 0031 Editor: markdown bold, italic, strike, code and headings; a Highlighting switch

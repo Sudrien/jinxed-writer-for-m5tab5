@@ -5,6 +5,7 @@
  */
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "esp_err.h"
@@ -76,6 +77,16 @@ int  display_text_scale(void);
 int  display_foot_scale(void);
 /* Clamped to MIN..MAX and kept. The caller re-measures and redraws. */
 void display_set_text_scale(int scale);
+
+/*
+ * Markdown (0031): bold, italic, strikethrough, code and headings drawn
+ * styled in the editor, the markers kept and dim. On or off from the
+ * settings page, kept in NVS, on out of the box. Spec 5's highlight
+ * modes (none, markdown, TeX) will replace this switch; it stands where
+ * that picker will go.
+ */
+bool display_markdown(void);
+void display_set_markdown(bool on);
 
 /* Backlight, percent. Low on purpose. */
 #define DISPLAY_BACKLIGHT   (30)

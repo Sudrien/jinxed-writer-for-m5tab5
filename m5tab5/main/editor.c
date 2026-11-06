@@ -46,6 +46,7 @@
 #include "freertos/task.h"
 
 #include "display.h"
+#include "md.h"
 #include "doclog.h"
 #include "kbd.h"
 #include "rtc8130.h"
@@ -204,22 +205,105 @@ static uint32_t word_count(void)
 
 /* `rows` lines of text from line `top`, with s_text[hl_a, hl_b) marked
  * behind. After layout(). */
+/*
+ * 0031: markdown. Each logical line's bytes get a style (md.h), kept by
+ * position in s_mds and worked out once per draw for the line a row is
+ * in. A row with no style is drawn as it always was; one with styles in
+ * runs -- each run where the whole row's gfx_draw_text() would have put
+ * it, so the columns do not move: code's background first, then the
+ * spelling mark, then the text, markers dim, then strikes.
+ */
+static uint8_t  *s_mds;         /* TEXT_MAX bytes, PSRAM */
+static uint32_t  s_md_from;     /* the logical line in s_mds, or UINT32_MAX */
+
+static void md_for(uint32_t at)
+{
+    uint32_t a = at;
+    while (a > 0 && s_text[a - 1] != '\n') a--;
+    if (a == s_md_from) return;
+    uint32_t b = at;
+    while (b < s_len && s_text[b] != '\n') b++;
+    md_line(s_text + a, b - a, s_mds + a);
+    s_md_from = a;
+}
+
+static unsigned gfx_style(uint8_t m)
+{
+    return ((m & MD_HEAD) ? GFX_STYLE_HEAVY : (m & MD_BOLD) ? GFX_STYLE_BOLD : 0) |
+           ((m & MD_ITALIC) ? GFX_STYLE_ITALIC : 0);
+}
+
+/* One pass over a row's runs: what each run is, and where it starts. */
+typedef void (*run_fn_t)(int x, int y, const char *s, int w, uint8_t m);
+
+static void row_runs(uint32_t rs, uint32_t re, int y, run_fn_t fn)
+{
+    int x = MARGIN_X;
+    uint32_t i = rs;
+    while (i < re) {
+        const uint8_t m = s_mds[i];
+        uint32_t j = i + 1;
+        while (j < re && s_mds[j] == m) j++;
+        memcpy(s_row_buf, s_text + i, j - i);
+        s_row_buf[j - i] = '\0';
+        const int w = gfx_text_w(s_row_buf, EDITOR_SCALE);
+        fn(x, y, s_row_buf, w, m);
+        x += w;
+        i = j;
+    }
+}
+
+static void run_bg(int x, int y, const char *s, int w, uint8_t m)
+{
+    (void)s;
+    if (m & MD_CODE)
+        gfx_fill_rect(x, y - EDITOR_SCALE, w, GFX_GLYPH_H(EDITOR_SCALE) + 2 * EDITOR_SCALE, COL_FIELD);
+}
+
+static void run_text(int x, int y, const char *s, int w, uint8_t m)
+{
+    (void)w;
+    gfx_draw_text_style(x, y, s, EDITOR_SCALE, gfx_w() - x, (m & MD_MARK) ? COL_DIM : COL_TEXT,
+                        gfx_style(m));
+}
+
+static void run_strike(int x, int y, const char *s, int w, uint8_t m)
+{
+    (void)s;
+    if ((m & MD_STRIKE) && !(m & MD_MARK))
+        gfx_fill_rect(x, y + GFX_STRIKE_Y(EDITOR_SCALE), w, GFX_STRIKE_H(EDITOR_SCALE), COL_TEXT);
+}
+
 static void draw_rows(int top, int rows, uint32_t hl_a, uint32_t hl_b)
 {
     const int W = gfx_w();
     const int gw = GFX_GLYPH_W(EDITOR_SCALE);
+    const bool md = display_markdown() && s_mds;
+    s_md_from = UINT32_MAX;             /* the text may have changed */
     for (int r = 0; r < rows && top + r < s_lines; r++) {
         const int l = top + r;
         const int y = MARGIN_Y + r * s_line_h;
-        const uint32_t a = hl_a > s_ls[l] ? hl_a : s_ls[l];
-        const uint32_t b = hl_b < s_le[l] ? hl_b : s_le[l];
+        const uint32_t rs = s_ls[l], re = s_le[l];
+        bool styled = false;
+        if (md && re > rs) {
+            md_for(rs);
+            for (uint32_t i = rs; i < re && !styled; i++) styled = s_mds[i] != 0;
+        }
+        if (styled) row_runs(rs, re, y, run_bg);
+        const uint32_t a = hl_a > rs ? hl_a : rs;
+        const uint32_t b = hl_b < re ? hl_b : re;
         if (a < b) {
-            gfx_fill_rect(MARGIN_X + (int)(a - s_ls[l]) * gw - EDITOR_SCALE, y - EDITOR_SCALE,
+            gfx_fill_rect(MARGIN_X + (int)(a - rs) * gw - EDITOR_SCALE, y - EDITOR_SCALE,
                           (int)(b - a) * gw + EDITOR_SCALE,
                           GFX_GLYPH_H(EDITOR_SCALE) + 2 * EDITOR_SCALE, COL_BTN);
         }
-        const uint32_t n = s_le[l] - s_ls[l];
-        memcpy(s_row_buf, s_text + s_ls[l], n);
+        if (styled) {
+            row_runs(rs, re, y, run_text);
+            row_runs(rs, re, y, run_strike);
+            continue;
+        }
+        const uint32_t n = re - rs;
+        memcpy(s_row_buf, s_text + rs, n);
         s_row_buf[n] = '\0';
         gfx_draw_text(MARGIN_X, y, s_row_buf, EDITOR_SCALE, W - MARGIN_X, COL_TEXT);
     }
@@ -1161,6 +1245,7 @@ esp_err_t editor_init(void)
     s_ls      = heap_caps_malloc((TEXT_MAX + 2) * sizeof(uint32_t), MALLOC_CAP_SPIRAM);
     s_le      = heap_caps_malloc((TEXT_MAX + 2) * sizeof(uint32_t), MALLOC_CAP_SPIRAM);
     s_base    = heap_caps_malloc(TEXT_MAX, MALLOC_CAP_SPIRAM);
+    s_mds     = heap_caps_malloc(TEXT_MAX, MALLOC_CAP_SPIRAM);   /* 0031; drawn plain without */
     if (!s_text || !s_ls || !s_le || !s_base) return ESP_ERR_NO_MEM;
     ESP_RETURN_ON_ERROR(doclog_init(TEXT_MAX), TAG, "doclog");
 

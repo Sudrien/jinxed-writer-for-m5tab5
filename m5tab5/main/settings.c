@@ -254,6 +254,7 @@ typedef struct {
     int rot_y;                  /* the first row of the four angles */
     int theme_y;                /* the first row of the four themes */
     int size_y;                 /* the row of text sizes */
+    int md_y;                   /* Markdown / None (0031) */
     int libs_y;                 /* first library row */
     int total_h;
 } page_t;
@@ -406,6 +407,20 @@ static page_t layout(bool draw, int scroll)
                        : "Text size in the editor; Ctrl+= and Ctrl+- there.", COL_DIM);
     y += LINE_H + SECTION_GAP;
 
+    /* Highlighting (0031): where spec 5's picker -- none, markdown, TeX
+     * -- will go. For now, markdown or nothing. */
+    RULE(y - SECTION_GAP / 2);
+    TXT(y, "Highlighting", COL_TEXT);
+    y += LINE_H + 8;
+    p.md_y = y;
+    if (draw) {
+        button(PAD, off + y, bw, BTN_H, "Markdown", display_markdown() ? COL_GO : COL_BTN);
+        button(PAD + bw + PAD / 2, off + y, bw, BTN_H, "None", display_markdown() ? COL_BTN : COL_GO);
+    }
+    y += BTN_H + 16;
+    TXT(y, "**bold**, *italic*, ~~struck~~, `code`, # headings.", COL_DIM);
+    y += LINE_H + SECTION_GAP;
+
     /* Libraries */
     RULE(y - SECTION_GAP / 2);
     TXT(y, "Libraries", COL_TEXT);
@@ -535,6 +550,9 @@ void settings_page(void)
                         display_set_rotation(k_rot[i].rot);
                         want = 0;       /* the page is another shape now */
                     }
+                } else if (cy >= p.md_y && cy < p.md_y + BTN_H) {
+                    if (in_rect(in.x, cy, PAD, p.md_y, bw, BTN_H)) display_set_markdown(true);
+                    else if (in_rect(in.x, cy, PAD + bw + PAD / 2, p.md_y, bw, BTN_H)) display_set_markdown(false);
                 } else if (cy >= p.size_y && cy < p.size_y + BTN_H) {
                     for (int i = 0; i < SIZES; i++) {
                         if (in_rect(in.x, cy, PAD + i * (size_w() + PAD / 2), p.size_y, size_w(), BTN_H))
