@@ -97,6 +97,7 @@ char kbd_ascii(uint8_t usage, uint8_t mods, bool caps);
 #define KBD_BACKSPACE   (0x2A)
 #define KBD_TAB         (0x2B)
 #define KBD_R           (0x15)
+#define KBD_S           (0x16)
 #define KBD_T           (0x17)
 #define KBD_V           (0x19)
 #define KBD_X           (0x1B)

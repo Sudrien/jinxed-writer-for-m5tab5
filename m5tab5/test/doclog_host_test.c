@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <stdint.h>
 #include <unistd.h>
 
 #include "doclog.h"
@@ -51,6 +52,22 @@ static void rnd_edit(void)
         memmove(cur + pos, cur + pos + n, cur_len - pos - n);
         cur_len -= n;
     }
+}
+
+/* 0036: the sidecar, written as doclog.c writes it, to fake a cut. */
+static uint32_t crc(const char *p, size_t n)
+{
+    uint32_t c = ~0u;
+    while (n--) { c ^= (unsigned char)*p++; for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0x82F63B78u & (0u - (c & 1))); }
+    return ~c;
+}
+static void put4(unsigned char *b, uint32_t v) { b[0] = v; b[1] = v >> 8; b[2] = v >> 16; b[3] = v >> 24; }
+static void side_put(const char *path, uint32_t last, uint32_t pending)
+{
+    unsigned char b[16];
+    put4(b, 0x3158474Au); put4(b + 4, last); put4(b + 8, pending);
+    put4(b + 12, crc((const char *)b, 12));
+    FILE *f = fopen(path, "wb"); fwrite(b, 1, 16, f); fclose(f);
 }
 
 static void wipe(void) { unlink(P0); unlink(P1); unlink(EXP); }
@@ -234,6 +251,60 @@ int main(void)
     assert(doclog_verify() == 0);
     wipe();
     assert(doclog_verify() == ESP_ERR_NOT_FOUND);
+
+    /* 0036: export. */
+    {
+        char CONF[256], SIDE[256], TMP[sizeof EXP + 4];
+        snprintf(CONF, sizeof CONF, "%s/2026-11-02.conflict.md", DOCLOG_DIR);
+        snprintf(SIDE, sizeof SIDE, "%s/.%s.x", DOCLOG_DIR, NAME);
+        snprintf(TMP, sizeof TMP, "%s.tmp", EXP);
+        wipe(); unlink(CONF); unlink(SIDE);
+        assert(doclog_open(NAME, got, &len, 0, false) == 0 && len == 0);
+        /* First export: the file appears, no temp left. */
+        assert(doclog_append("", 0, "one", 3, 1, true, DOCLOG_SRC_USER, NULL) == 0);
+        assert(doclog_export("one", 3) == 0);
+        assert(fsize(EXP) == 3 && fsize(TMP) < 0 && fsize(SIDE) == 16);
+        /* Again, over its own file. */
+        assert(doclog_export("one two", 7) == 0 && fsize(EXP) == 7);
+        /* Edited outside: left alone, ours goes beside it, every time. */
+        f = fopen(EXP, "wb"); fputs("theirs", f); fclose(f);
+        assert(doclog_export("one two three", 13) == ESP_ERR_INVALID_STATE);
+        assert(fsize(EXP) == 6 && fsize(CONF) == 13);
+        assert(doclog_export("one two three!", 14) == ESP_ERR_INVALID_STATE && fsize(EXP) == 6);
+        /* They move theirs away: ours is written normally again. */
+        unlink(EXP);
+        assert(doclog_export("four", 4) == 0 && fsize(EXP) == 4);
+        /* A power cut mid-export: the sidecar says last "four", pending
+         * "five". Either one on the card is ours. */
+        side_put(SIDE, crc("four", 4), crc("five", 4));
+        f = fopen(EXP, "wb"); fputs("five", f); fclose(f);  /* renamed in, not recorded */
+        assert(doclog_export("six", 3) == 0 && fsize(EXP) == 3);
+        side_put(SIDE, crc("four", 4), crc("five", 4));
+        f = fopen(EXP, "wb"); fputs("four", f); fclose(f);  /* cut before the rename */
+        assert(doclog_export("six", 3) == 0 && fsize(EXP) == 3);
+        side_put(SIDE, crc("four", 4), crc("five", 4));
+        f = fopen(EXP, "wb"); fputs("fiv", f); fclose(f);   /* neither: theirs */
+        assert(doclog_export("six", 3) == ESP_ERR_INVALID_STATE && fsize(EXP) == 3);
+        unlink(CONF);
+        /* A missing or torn sidecar beside an existing file: theirs. */
+        unlink(CONF); unlink(EXP);
+        assert(doclog_export("seven", 5) == 0);
+        assert(truncate(SIDE, 7) == 0);
+        assert(doclog_export("eight", 5) == ESP_ERR_INVALID_STATE);
+        /* ...unless the file already holds the text: then it is just
+         * recorded. */
+        assert(doclog_export("seven", 5) == 0 && fsize(SIDE) == 16);
+        assert(doclog_export("nine", 4) == 0 && fsize(EXP) == 4);
+
+        /* An import is its own export: typing on it is no conflict. */
+        wipe(); unlink(CONF); unlink(SIDE);
+        f = fopen(EXP, "wb"); fputs("imported\n", f); fclose(f);
+        doclog_close();
+        assert(doclog_open(NAME, got, &len, 0, false) == 0 && len == 9);
+        assert(doclog_export("imported\nmore", 13) == 0 && fsize(EXP) == 13 && fsize(CONF) < 0);
+        unlink(CONF); unlink(SIDE);
+        puts("export: ok");
+    }
 
     printf("ok: %d damage trials, %d twins repaired\n", trials, repaired);
     wipe();

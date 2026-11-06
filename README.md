@@ -16,7 +16,10 @@ Not ready for human consumption yet. `writerdeck_spec.md` is the design;
   selects; Cmd+A, and Cmd+C / X / V with a clipboard kept until power-off.
 - **Nothing lost.** The document is a log of every edit, written twice
   (`.YYYY-MM-DD.md.h0` and `.h1`) and recovered from whichever twin is
-  longer after a power cut; the `.md` is regenerated from it. Each edit
+  longer after a power cut; the `.md` is regenerated from it a few
+  seconds after typing stops, or on Ctrl+S (Command+S). Edited on a
+  computer meanwhile, it is left alone and `YYYY-MM-DD.conflict.md` written
+  beside it. Each edit
   says whether you made it or the spelling check did.
 - **Spelling, on demand.** F7 (or Command+; on an Apple keyboard) walks the document from the cursor:
   1-9 or Enter take a suggestion, E types the word yourself, A adds it to

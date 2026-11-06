@@ -239,3 +239,4 @@ worked. A tag move keeps that line.
 - 0033 Editor: a selection, Shift with the movements, select all, copy, cut and paste
 - 0034 doclog.h: the log has authors, user and symspell, per changeset
 - 0035 Attribution: the user's edits credited by name, an author record in the log
+- 0036 Export: the .md from the log, a sidecar for its hash, conflicts beside it; Ctrl+S

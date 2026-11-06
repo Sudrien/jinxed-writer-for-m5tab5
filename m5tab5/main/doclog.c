@@ -91,6 +91,10 @@ static char     *s_scratch;     /* replay output */
 
 static bool      s_open;
 static char      s_path[2][PATH_MAX_LEN];
+/* 0036: the export, its temp and conflict files, and the sidecar
+ * holding what the last export wrote. */
+static char      s_exp[PATH_MAX_LEN], s_tmp[PATH_MAX_LEN + 4];
+static char      s_conf[PATH_MAX_LEN + 16], s_side[PATH_MAX_LEN + 4];
 static hdr_t     s_hdr;
 static long      s_end;         /* append offset, same in both twins */
 static uint32_t  s_seq;
@@ -486,6 +490,9 @@ static uint8_t hl_from_name(const char *name)
     return 0;
 }
 
+static bool side_write(uint32_t last, uint32_t pending);
+static bool file_hash(const char *path, uint32_t *h);
+
 /* A document with no log: import the export if there is one (spec 4,
  * "importing existing files"), as one insert stamped with its mtime. */
 static esp_err_t create_log(const char *name, char *text, uint32_t *len,
@@ -523,6 +530,9 @@ static esp_err_t create_log(const char *name, char *text, uint32_t *len,
         const uint32_t p = cs_make(s_rec + REC_HDR, "", 0, text, n);
         if (append_cs(p, when, when_ok, DOCLOG_SRC_USER, 0) != ESP_OK) { s_open = false; return ESP_FAIL; }
         *len = n;
+        /* 0036: the file is ours now, as the log's first text. */
+        uint32_t h;
+        if (file_hash(exp, &h)) side_write(h, h);
     }
     return ESP_OK;
 }
@@ -534,9 +544,17 @@ esp_err_t doclog_open(const char *name, char *text, uint32_t *len,
     *len = 0;
     if (!VOL_PRESENT()) return ESP_ERR_INVALID_STATE;
     if (snprintf(s_path[0], PATH_MAX_LEN, "%s/.%s%s", DOCLOG_DIR, name, DOCLOG_SUFFIX0) >= PATH_MAX_LEN ||
-        snprintf(s_path[1], PATH_MAX_LEN, "%s/.%s%s", DOCLOG_DIR, name, DOCLOG_SUFFIX1) >= PATH_MAX_LEN) {
+        snprintf(s_path[1], PATH_MAX_LEN, "%s/.%s%s", DOCLOG_DIR, name, DOCLOG_SUFFIX1) >= PATH_MAX_LEN ||
+        snprintf(s_exp, sizeof s_exp, "%s/%s", DOCLOG_DIR, name) >= (int)sizeof s_exp) {
         return ESP_ERR_INVALID_ARG;
     }
+    /* 0036: name.md.tmp, .name.md.x, and name.conflict.md -- the
+     * conflict's extension kept, so it opens as what it is. */
+    snprintf(s_tmp, sizeof s_tmp, "%s.tmp", s_exp);
+    snprintf(s_side, sizeof s_side, "%s/.%s.x", DOCLOG_DIR, name);
+    const char *dot = strrchr(name, '.');
+    const int stem = dot ? (int)(dot - name) : (int)strlen(name);
+    snprintf(s_conf, sizeof s_conf, "%s/%.*s.conflict%s", DOCLOG_DIR, stem, name, dot ? dot : "");
 
     VOL_HOLD();
     esp_err_t err = ESP_OK;
@@ -556,6 +574,105 @@ esp_err_t doclog_open(const char *name, char *text, uint32_t *len,
 bool doclog_is_open(void) { return s_open; }
 uint32_t doclog_seq(void) { return s_seq; }
 void doclog_close(void)   { s_open = false; }
+
+/* ---- export (0036) ---------------------------------------------------- */
+
+#define SIDE_MAGIC      (0x3158474Au)   /* "JGX1" */
+
+/* CRC-32C of a whole file, read to its end: a file the user supplies
+ * may be any size (CLAUDE.md), and nothing here needs its length. */
+static bool file_hash(const char *path, uint32_t *h)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) return false;
+    uint32_t c = 0;
+    size_t k;
+    while ((k = fread(s_scratch, 1, IO_CHUNK, f)) > 0) c = crc32c(c, (const uint8_t *)s_scratch, k);
+    const bool ok = !ferror(f);
+    fclose(f);
+    *h = c;
+    return ok;
+}
+
+/* The sidecar: magic, the hash of the export as last written, the hash
+ * of one being put in place now, and a CRC of the three. Either hash
+ * found on the card is ours, so a power cut between writing the new
+ * file and recording it is not taken for someone else's edit. */
+static bool side_write(uint32_t last, uint32_t pending)
+{
+    uint8_t b[16];
+    put32(b, SIDE_MAGIC);
+    put32(b + 4, last);
+    put32(b + 8, pending);
+    put32(b + 12, crc32c(0, b, 12));
+    FILE *f = fopen(s_side, "wb");
+    if (!f) return false;
+    const bool ok = fwrite(b, 1, sizeof b, f) == sizeof b;
+    const bool done = sync_close(f) && ok;
+    if (done) MARK_HIDDEN(s_side);
+    return done;
+}
+
+static bool side_read(uint32_t *last, uint32_t *pending)
+{
+    uint8_t b[16];
+    FILE *f = fopen(s_side, "rb");
+    if (!f) return false;
+    const bool ok = fread(b, 1, sizeof b, f) == sizeof b;
+    fclose(f);
+    if (!ok || get32(b) != SIDE_MAGIC || get32(b + 12) != crc32c(0, b, 12)) return false;
+    *last = get32(b + 4);
+    *pending = get32(b + 8);
+    return true;
+}
+
+/* Write `text` to `path`, synced. */
+static bool write_whole(const char *path, const char *text, uint32_t len)
+{
+    FILE *f = fopen(path, "wb");
+    if (!f) return false;
+    const bool ok = fwrite(text, 1, len, f) == len;
+    return sync_close(f) && ok;
+}
+
+esp_err_t doclog_export(const char *text, uint32_t len)
+{
+    if (!s_open) return ESP_ERR_INVALID_STATE;
+    if (!VOL_PRESENT()) return ESP_ERR_INVALID_STATE;
+    VOL_HOLD();
+    esp_err_t err = ESP_OK;
+    const uint32_t neu = crc32c(0, (const uint8_t *)text, len);
+    uint32_t have = 0, last = 0, pending = 0;
+    struct stat st;
+    const bool exists = stat(s_exp, &st) == 0;
+    const bool side = side_read(&last, &pending);
+    if (exists && !file_hash(s_exp, &have)) {
+        err = ESP_FAIL;
+    } else if (exists && have == neu) {
+        /* Already this text: only the record may be behind. */
+        if (!side || last != neu || pending != neu) side_write(neu, neu);
+    } else if (exists && (!side || (have != last && have != pending))) {
+        /* Not what we last wrote: someone else's. Leave it; put ours
+         * beside it (spec 4, "external edits"). */
+        ESP_LOGW(TAG, "%s changed outside; writing %s", s_exp, s_conf);
+        err = write_whole(s_conf, text, len) ? ESP_ERR_INVALID_STATE : ESP_FAIL;
+    } else if (!write_whole(s_tmp, text, len) || !side_write(side ? last : neu, neu)) {
+        unlink(s_tmp);
+        err = ESP_FAIL;
+    } else {
+        /* FatFs will not rename over a file: unlink, then rename. The
+         * log has everything, so the gap costs nothing. */
+        if (exists) unlink(s_exp);
+        if (rename(s_tmp, s_exp) != 0) {
+            ESP_LOGW(TAG, "rename %s: errno %d", s_tmp, errno);
+            err = ESP_FAIL;
+        } else {
+            side_write(neu, neu);
+        }
+    }
+    VOL_RELEASE();
+    return err;
+}
 
 int doclog_author_id(const char *name)
 {

@@ -117,6 +117,19 @@ esp_err_t doclog_append(const char *old, uint32_t old_len,
                         const char *neu, uint32_t new_len,
                         int64_t now, bool now_ok, doclog_src_t src, const char *author);
 
+/*
+ * 0036: write `text` -- the text the log replays to -- as the export,
+ * DOCLOG_DIR/name: to name.tmp, synced, then in place of the old one.
+ * What was last exported is recorded in a hidden sidecar, `.name.x`
+ * (the header cannot hold it: its CRC seeds the record chain). If the
+ * export on the card is not what was last written there -- edited on a
+ * computer -- it is left alone and the text goes to `name.conflict.ext`
+ * instead: ESP_ERR_INVALID_STATE. An import records its file as
+ * exported, so it is not a conflict with itself; an export already on
+ * the card beside a log with no sidecar (an import before 0036) is.
+ */
+esp_err_t doclog_export(const char *text, uint32_t len);
+
 /* 0035: the id the open log credits `name` as: 0 for NULL or "", -1 if
  * it has not named it. */
 int doclog_author_id(const char *name);

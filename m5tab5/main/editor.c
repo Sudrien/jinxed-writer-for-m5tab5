@@ -81,6 +81,9 @@ static void measure(void);
  * long of typing without such a pause. */
 #define SAVE_PAUSE_MS   (1500)
 #define SAVE_MAX_MS     (10000)
+/* 0036: export this long after the last keystroke, once the log has
+ * what is to be exported. */
+#define EXPORT_PAUSE_MS (5000)
 /* After a failed open, wait this long before trying the card again. */
 #define ATTACH_RETRY_MS (5000)
 
@@ -123,6 +126,8 @@ static doclog_src_t s_src;      /* who made what is pending */
 static doclog_src_t s_edit_src = DOCLOG_SRC_USER;  /* who is editing now */
 static TickType_t s_last_edit, s_first_edit;
 static bool      s_save_failed;
+static bool      s_export_due;  /* 0036: the log has more than the export */
+static bool      s_conflict;    /* the export was edited outside */
 static bool      s_ever_open;
 static uint32_t  s_gen;
 static TickType_t s_attach_after;
@@ -353,7 +358,7 @@ static void draw_rows(int top, int rows, uint32_t hl_a, uint32_t hl_b)
 /* Something the status line must show even on a bare page. */
 static bool foot_warns(void)
 {
-    return !kbd_present() || s_caps || !storage_present(STORAGE_SD) || s_save_failed;
+    return !kbd_present() || s_caps || !storage_present(STORAGE_SD) || s_save_failed || s_conflict;
 }
 
 static void redraw(void)
@@ -393,6 +398,8 @@ static void redraw(void)
         gfx_draw_text(MARGIN_X + 21 * GFX_GLYPH_W(FOOT_SCALE), s_status_y, "no card", FOOT_SCALE, W, COL_DIM);
     } else if (s_save_failed) {
         gfx_draw_text(MARGIN_X + 21 * GFX_GLYPH_W(FOOT_SCALE), s_status_y, "not saved", FOOT_SCALE, W, COL_DIM);
+    } else if (s_conflict) {            /* 0036: the .md was edited outside */
+        gfx_draw_text(MARGIN_X + 21 * GFX_GLYPH_W(FOOT_SCALE), s_status_y, "conflict", FOOT_SCALE, W, COL_DIM);
     }
 
     gfx_blit(0, H);
@@ -474,6 +481,7 @@ static bool attach(void)
         edited();
     }
     s_ever_open = true;
+    s_export_due = true;                /* 0036: a cheap check if it matches */
     return true;
 }
 
@@ -497,6 +505,7 @@ static bool save_tick(bool force)
         s_base_len = s_len;
         s_pending = false;
         s_save_failed = false;
+        s_export_due = true;
     } else {
         /* Try again after another pause's worth. */
         s_save_failed = true;
@@ -504,6 +513,30 @@ static bool save_tick(bool force)
         s_first_edit = now;
     }
     return redraw_needed || was_failed != s_save_failed;
+}
+
+/*
+ * 0036: write the export once typing has paused, or now when `force`,
+ * from s_base -- what the log holds -- so only flushed text goes out.
+ * A conflict (the .md edited outside) writes name.conflict.md and says
+ * so in the status line until an export lands. True when that changed.
+ */
+static bool export_tick(bool force)
+{
+    if (!s_export_due || s_pending || !doclog_is_open()) return false;
+    if (!force && xTaskGetTickCount() - s_last_edit < pdMS_TO_TICKS(EXPORT_PAUSE_MS)) return false;
+    const bool was = s_conflict;
+    const esp_err_t e = doclog_export(s_base, s_base_len);
+    if (e == ESP_OK) {
+        s_export_due = false;
+        s_conflict = false;
+    } else if (e == ESP_ERR_INVALID_STATE && storage_present(STORAGE_SD)) {
+        s_export_due = false;           /* written beside it; again at the next flush */
+        s_conflict = true;
+    } else {
+        s_last_edit = xTaskGetTickCount();  /* another pause's worth */
+    }
+    return was != s_conflict;
 }
 
 /* The day's file name, from the RTC. Fixed for the session for now;
@@ -1120,6 +1153,7 @@ static const sheet_row_t k_keys_pc[] = {
     { "Shift + any of those moves", "select" },
     { "Ctrl+A",                  "select all" },
     { "Ctrl+C / X / V",          "copy / cut / paste" },
+    { "Ctrl+S",                  "save now" },
     { "F7",                      "check spelling" },
     { "Ctrl+= / Ctrl+-",         "text larger / smaller" },
     { "Ctrl+,",                  "settings" },
@@ -1138,6 +1172,7 @@ static const sheet_row_t k_keys_apple[] = {
     { "Shift + any of those moves", "select" },
     { "Command+A",               "select all" },
     { "Command+C / X / V",       "copy / cut / paste" },
+    { "Command+S",               "save now" },
     { "Command+; or F7",         "check spelling" },
     { "Command+= / Command+-",   "text larger / smaller" },
     { "Command+,",               "settings" },
@@ -1434,6 +1469,11 @@ void editor_run(void)
                 else if (ev.usage == KBD_F1) { layout(); keys_sheet(ev.apple); touch_down = false; }
                 else { layout(); stats_sheet(); touch_down = false; }
                 dirty = true;
+            } else if (ev.down && ev.usage == KBD_S && ev.cmd) {
+                held = 0;               /* 0036: save now -- the log, then the export */
+                save_tick(true);
+                export_tick(true);
+                dirty = true;
             } else if (ev.down && ev.usage == KBD_COMMA && ev.cmd) {
                 open_settings = true;       /* spec 7: from the keyboard too */
             } else if (ev.down && (ev.usage == KBD_F7 || (ev.usage == KBD_SEMICOLON && ev.cmd && ev.apple))) {
@@ -1463,6 +1503,7 @@ void editor_run(void)
         if (open_settings) {
             held = 0;
             save_tick(true);            /* the card is current before we leave */
+            export_tick(true);
             settings_page();
             measure();                  /* it may have turned the screen */
             touch_down = false;
@@ -1485,6 +1526,7 @@ void editor_run(void)
 
         /* Not while a key is held: the repeat is still typing. */
         if (!held && save_tick(false)) dirty = true;
+        if (!held && export_tick(false)) dirty = true;
 
         if (dirty) redraw();
     }
