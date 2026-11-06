@@ -147,9 +147,13 @@ Which mode the device runs in is chosen on the **settings page** (section 7) and
 | Settings | Ctrl+, (VS Code's) | Command+, | ✓ |
 | Text larger / smaller, number row or keypad (0022) | Ctrl+= / Ctrl+- | Command+= / Command+- | ✓ |
 | Save now (flush the log, then export) | Ctrl+S | Command+S | planned |
-| Find; next / previous | Ctrl+F; F3 / Shift+F3 | Command+F; Command+G / Command+Shift+G | planned |
+| Find; next / previous | Ctrl+F; F3 / Shift+F3 | Command+F; Command+G / Command+Shift+G, or F3 / Shift+F3 | planned |
 | Go to line | Ctrl+G | Command+L | planned |
 | Send now (file mode's manual send) | Ctrl+Enter | Command+Enter | planned |
+| **F keys** (0029: never the only way to something, but for these three, which have nowhere else to be) | | | |
+| These keys: this keyboard's column of this table, built rows only; any key or a tap closes | F1 | F1 | ✓ |
+| Bare page: no word count and no gear, the status line's row given to the text -- it comes back while there is no keyboard, caps, no card or not saved; until power-off | F11 | F11 | ✓ |
+| Page stats: the document, words, characters (with and without spaces), paragraphs, wrapped lines, the cursor's line and column, size against the 256 KB limit, reading time at 230 words a minute | F12 | F12 | ✓ |
 
 Held keys repeat. A chord with Ctrl, Command, Alt or the Windows key types nothing.
 
@@ -161,6 +165,7 @@ Held keys repeat. A chord with Ctrl, Command, Alt or the Windows key types nothi
 - **The keyboard decides the habits** (0027, 0028). A Windows keyboard gets Windows': Ctrl for words, paragraphs and the document's ends, Home / End for the line; the Windows key and Alt do nothing. An Apple keyboard gets the Mac's: Command for the line and the document, Option for words and paragraphs, Ctrl for nothing. 0024 had made Ctrl, the Windows key and Command one, with Mac arrows on every keyboard, because the Windows key and Command send the same HID modifier; the keyboard tells them apart (0025), so that is gone.
 - **Where Windows has no standard key**, Notepad++'s comes first, then VS Code's: Ctrl+L and Ctrl+Shift+K both delete the line (Notepad++ uses Ctrl+Shift+K for a block comment, which a plain-text editor does not have). Notepad++'s Ctrl+Up / Down scroll without moving the cursor; Word's paragraph moves were kept for them.
 - **Ctrl+; is not the spelling key on Windows** (0028): Word has none, and it is Excel's insert-the-date. F7 is.
+- **F keys are extra routes, not the only ones** (0029), except F1, F11 and F12, which have no other key: a 60% keyboard reaches them on its Fn layer, and some "for Mac" keyboards send media keys there unless Fn is held. F2, F4, F10 and Word's F12 (Save As) are not used: rename, repeat, a menu bar and Save As have no meaning here. F12 is page stats.
 - **Undo never removes anything from the log** (section 4). It appends a new changeset that reverses the last one, so every word typed stays in the history.
 - **Selection comes first.** Copy, cut, paste and the Shift movements all rest on the editor having a selection, and a RAM clipboard. Until then those rows stay planned.
 - **Not carried over from Word:** bold, italic, underline, alignment, styles, page breaks, tables, print. The text is plain.

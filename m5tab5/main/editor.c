@@ -97,6 +97,11 @@ static int       s_lines;
 static int       s_top;         /* first line on screen */
 
 static int       s_cols, s_rows, s_line_h, s_status_y;
+/* F11's bare page (0029): no word count and no gear. The status line's
+ * row is given to the text unless something there must be seen --
+ * no keyboard, caps, no card, not saved -- which brings it back. Until
+ * power-off. */
+static bool      s_bare, s_foot_on = true;
 static char     *s_row_buf;     /* one line, NUL-terminated, for gfx */
 
 /* Saving. See the top of the file. */
@@ -220,8 +225,16 @@ static void draw_rows(int top, int rows, uint32_t hl_a, uint32_t hl_b)
     }
 }
 
+/* Something the status line must show even on a bare page. */
+static bool foot_warns(void)
+{
+    return !kbd_present() || s_caps || !storage_present(STORAGE_SD) || s_save_failed;
+}
+
 static void redraw(void)
 {
+    const bool foot = !s_bare || foot_warns();
+    if (foot != s_foot_on) { s_foot_on = foot; measure(); }
     layout();
     const int cl = cursor_line();
     if (cl < s_top) s_top = cl;
@@ -240,11 +253,13 @@ static void redraw(void)
 
     /* The status line: word count, and only that -- plus a note when
      * there is nothing to type on. Spec section 5. */
-    char st[48];
-    snprintf(st, sizeof(st), "%lu words", (unsigned long)word_count());
-    /* Right-aligned, leaving the corner to the gear. */
-    gfx_draw_text(W - settings_gear_w() - gfx_text_w(st, FOOT_SCALE), s_status_y, st, FOOT_SCALE, W, COL_DIM);
-    settings_draw_gear();
+    if (!s_bare || !kbd_present()) {     /* no keyboard: the gear is the way out */
+        char st[48];
+        snprintf(st, sizeof(st), "%lu words", (unsigned long)word_count());
+        /* Right-aligned, leaving the corner to the gear. */
+        gfx_draw_text(W - settings_gear_w() - gfx_text_w(st, FOOT_SCALE), s_status_y, st, FOOT_SCALE, W, COL_DIM);
+        settings_draw_gear();
+    }
     if (!kbd_present()) gfx_draw_text(MARGIN_X, s_status_y, "no keyboard", FOOT_SCALE, W, COL_DIM);
     if (s_caps)        gfx_draw_text(MARGIN_X + 15 * GFX_GLYPH_W(FOOT_SCALE), s_status_y, "caps", FOOT_SCALE, W, COL_DIM);
     if (!storage_present(STORAGE_SD)) {
@@ -875,6 +890,127 @@ static int spell_type_key(spell_view_t *v, const kbd_event_t *ev)
 
 /* The check, from the word at the cursor round to it again. Runs on the
  * editor's task, as settings_page() does, until closed. */
+/* ---- F1 and F12: sheets over the text (0029) --------------------------- */
+
+typedef struct { const char *keys, *does; } sheet_row_t;
+
+/* The keyboard's own column of spec 5's table, built rows only. */
+static const sheet_row_t k_keys_pc[] = {
+    { "Ctrl+Left / Right",       "word back / forward" },
+    { "Ctrl+Up / Down",          "paragraph back / forward" },
+    { "Home / End",              "line start / end" },
+    { "Ctrl+Home / End",         "document start / end" },
+    { "PageUp / PageDown",       "a screen up / down" },
+    { "Ctrl+Backspace / Delete", "delete the word before / after" },
+    { "Ctrl+L, Ctrl+Shift+K",    "delete the line" },
+    { "F7",                      "check spelling" },
+    { "Ctrl+= / Ctrl+-",         "text larger / smaller" },
+    { "Ctrl+,",                  "settings" },
+    { "F1",                      "these keys" },
+    { "F11",                     "bare page, on / off" },
+    { "F12",                     "page stats" },
+};
+static const sheet_row_t k_keys_apple[] = {
+    { "Option+Left / Right",     "word back / forward" },
+    { "Option+Up / Down",        "paragraph back / forward" },
+    { "Command+Left / Right",    "line start / end" },
+    { "Command+Up / Down",       "document start / end" },
+    { "PageUp / PageDown",       "a screen up / down" },
+    { "Option+Delete",           "delete the word before" },
+    { "Command+Delete",          "delete to the line's start" },
+    { "Command+; or F7",         "check spelling" },
+    { "Command+= / Command+-",   "text larger / smaller" },
+    { "Command+,",               "settings" },
+    { "F1",                      "these keys" },
+    { "F11",                     "bare page, on / off" },
+    { "F12",                     "page stats" },
+};
+#define SHEET_SCALE     (2)
+
+/* Rows drawn over the text: keys left, what they do right -- or, the
+ * narrow way up, the second under the first -- until a key or a tap. */
+static void sheet(const char *title, const sheet_row_t *row, int n)
+{
+    const int W = gfx_w(), H = gfx_h();
+    const int lh = GFX_GLYPH_H(SHEET_SCALE) + 10;
+    const bool narrow = W < 1000;
+    const int col2 = narrow ? MARGIN_X + 32 : W * 45 / 100;
+    gfx_fill_rect(0, 0, W, H, COL_HEAD);
+    int y = MARGIN_Y;
+    gfx_draw_text(MARGIN_X, y, title, SHEET_SCALE + 1, W - 2 * MARGIN_X, COL_TEXT);
+    y += GFX_GLYPH_H(SHEET_SCALE + 1) + 24;
+    for (int i = 0; i < n && y + lh < H - lh; i++) {
+        gfx_draw_text(MARGIN_X, y, row[i].keys, SHEET_SCALE, narrow ? W - 2 * MARGIN_X : col2 - MARGIN_X - 16, COL_TEXT);
+        if (narrow) y += lh;
+        gfx_draw_text(col2, y, row[i].does, SHEET_SCALE, W - MARGIN_X - col2, COL_DIM);
+        y += lh + (narrow ? 8 : 0);
+    }
+    gfx_draw_text(MARGIN_X, H - MARGIN_Y - GFX_GLYPH_H(SHEET_SCALE), "Any key to close.",
+                  SHEET_SCALE, W - 2 * MARGIN_X, COL_DIM);
+    gfx_blit(0, H);
+
+    touch_swallow();
+    for (;;) {
+        kbd_event_t ev;
+        if (kbd_get(&ev, pdMS_TO_TICKS(30)) && ev.down) break;
+        int tx, ty;
+        if (touch_get(&tx, &ty)) { touch_swallow(); break; }
+    }
+}
+
+static void keys_sheet(bool apple)
+{
+    if (apple) sheet("Keys (Apple keyboard)", k_keys_apple, (int)(sizeof k_keys_apple / sizeof k_keys_apple[0]));
+    else       sheet("Keys", k_keys_pc, (int)(sizeof k_keys_pc / sizeof k_keys_pc[0]));
+}
+
+/* F12: what the page holds. Characters are UTF-8 code points; a
+ * paragraph is a run of lines between blank ones. */
+static void stats_sheet(void)
+{
+    uint32_t chars = 0, nonsp = 0, paras = 0, line = 1, col = 0;
+    bool blank = true;              /* the line so far has only spaces */
+    bool in_para = false;
+    for (uint32_t i = 0; i < s_len; i++) {
+        const unsigned char c = (unsigned char)s_text[i];
+        if ((c & 0xC0) == 0x80) continue;
+        chars++;
+        if (c == '\n') {
+            if (blank) in_para = false;
+            blank = true;
+            continue;
+        }
+        if (c != ' ' && c != '\t') {
+            nonsp++;
+            if (blank && !in_para) { paras++; in_para = true; }
+            blank = false;
+        }
+    }
+    for (uint32_t i = 0; i < s_cur && i < s_len; i++) {
+        if (s_text[i] == '\n') { line++; col = 0; }
+        else if (((unsigned char)s_text[i] & 0xC0) != 0x80) col++;
+    }
+    const uint32_t words = word_count();
+    static char v[9][48];
+    snprintf(v[0], sizeof v[0], "%s", s_name[0] ? s_name : "(none yet)");
+    snprintf(v[1], sizeof v[1], "%lu", (unsigned long)words);
+    snprintf(v[2], sizeof v[2], "%lu", (unsigned long)chars);
+    snprintf(v[3], sizeof v[3], "%lu", (unsigned long)nonsp);
+    snprintf(v[4], sizeof v[4], "%lu", (unsigned long)paras);
+    snprintf(v[5], sizeof v[5], "%lu (%d on screen)", (unsigned long)(s_lines > 0 ? s_lines : 1), s_rows);
+    snprintf(v[6], sizeof v[6], "line %lu, column %lu", (unsigned long)line, (unsigned long)col + 1);
+    snprintf(v[7], sizeof v[7], "%lu of %u KB", (unsigned long)((s_len + 1023) / 1024), (unsigned)(TEXT_MAX / 1024));
+    snprintf(v[8], sizeof v[8], "about %lu min", (unsigned long)((words + 229) / 230));
+    const sheet_row_t rows[] = {
+        { "Document",      v[0] }, { "Words",            v[1] },
+        { "Characters",    v[2] }, { "Without spaces",   v[3] },
+        { "Paragraphs",    v[4] }, { "Lines, wrapped",   v[5] },
+        { "Cursor",        v[6] }, { "Size",             v[7] },
+        { "Reading time",  v[8] },
+    };
+    sheet("Page stats", rows, (int)(sizeof rows / sizeof rows[0]));
+}
+
 static void spell_view(void)
 {
     static spell_view_t v;          /* the suggestions are 400 bytes */
@@ -1015,7 +1151,7 @@ static void measure(void)
     s_cols   = (W - 2 * MARGIN_X) / GFX_GLYPH_W(EDITOR_SCALE);
     s_line_h = GFX_GLYPH_H(EDITOR_SCALE) + 4 * EDITOR_SCALE;
     s_status_y = H - MARGIN_Y / 2 - GFX_GLYPH_H(FOOT_SCALE);
-    s_rows   = (s_status_y - MARGIN_Y - 8) / s_line_h;
+    s_rows   = ((s_foot_on ? s_status_y : H - MARGIN_Y / 2) - MARGIN_Y - 8) / s_line_h;
     ESP_LOGI(TAG, "%d columns, %d rows, scale %d", s_cols, s_rows, EDITOR_SCALE);
 }
 
@@ -1068,7 +1204,14 @@ void editor_run(void)
         kbd_event_t ev;
         bool dirty = false;
         if (kbd_get(&ev, wait)) {
-            if (ev.down && ev.usage == KBD_COMMA && ev.cmd) {
+            if (ev.down && !(ev.mods & ~KBD_MOD_SHIFT) &&
+                (ev.usage == KBD_F1 || ev.usage == KBD_F11 || ev.usage == KBD_F12)) {
+                held = 0;               /* 0029: the F keys, unmodified */
+                if (ev.usage == KBD_F11) s_bare = !s_bare;
+                else if (ev.usage == KBD_F1) { layout(); keys_sheet(ev.apple); touch_down = false; }
+                else { layout(); stats_sheet(); touch_down = false; }
+                dirty = true;
+            } else if (ev.down && ev.usage == KBD_COMMA && ev.cmd) {
                 open_settings = true;       /* spec 7: from the keyboard too */
             } else if (ev.down && (ev.usage == KBD_F7 || (ev.usage == KBD_SEMICOLON && ev.cmd && ev.apple))) {
                 open_spell = true;          /* spec 5: Word's F7, the Mac's Cmd+; */
@@ -1091,7 +1234,7 @@ void editor_run(void)
         int tx, ty;
         const bool t_now = touch_get(&tx, &ty);
         if (t_now && !touch_down) { touch_x = tx; touch_y = ty; }
-        if (!t_now && touch_down && settings_gear_hit(touch_x, touch_y)) open_settings = true;
+        if (!t_now && touch_down && (!s_bare || !kbd_present()) && settings_gear_hit(touch_x, touch_y)) open_settings = true;
         touch_down = t_now;
 
         if (open_settings) {
