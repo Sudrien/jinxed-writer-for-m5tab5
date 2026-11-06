@@ -82,6 +82,8 @@ char kbd_ascii(uint8_t usage, uint8_t mods, bool caps);
 #define KBD_R           (0x15)
 #define KBD_T           (0x17)
 #define KBD_SPACE       (0x2C)
+#define KBD_MINUS       (0x2D)
+#define KBD_EQUAL       (0x2E)      /* "+" shifted */
 #define KBD_SEMICOLON   (0x33)
 #define KBD_COMMA       (0x36)
 #define KBD_CAPSLOCK    (0x39)
@@ -95,6 +97,8 @@ char kbd_ascii(uint8_t usage, uint8_t mods, bool caps);
 #define KBD_LEFT        (0x50)
 #define KBD_DOWN        (0x51)
 #define KBD_UP          (0x52)
+#define KBD_KP_MINUS    (0x56)
+#define KBD_KP_PLUS     (0x57)
 #define KBD_KP_ENTER    (0x58)
 
 #ifdef __cplusplus

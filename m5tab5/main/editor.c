@@ -57,10 +57,14 @@
 
 static const char *TAG = "editor";
 
-/* Text scale over the 12px font. Spec section 5 makes it a setting; it
- * is a constant until the settings page exists. 3 is 36px glyphs, 58
- * columns across the landscape panel. */
-#define EDITOR_SCALE    (3)
+/* Text scale over the 12px font: display_text_scale(), 2 to 5 (0022),
+ * taken by measure(). 3 is 36px glyphs, 58 columns across the landscape
+ * panel. FOOT_SCALE is the status line's and the spelling view's small
+ * print, a step smaller. */
+static int       s_scale = DISPLAY_SCALE_DEFAULT, s_foot = DISPLAY_SCALE_MIN;
+#define EDITOR_SCALE    (s_scale)
+#define FOOT_SCALE      (s_foot)
+static void measure(void);
 
 #define TEXT_MAX        (256 * 1024)
 #define MARGIN_X        (40)
@@ -239,14 +243,14 @@ static void redraw(void)
     char st[48];
     snprintf(st, sizeof(st), "%lu words", (unsigned long)word_count());
     /* Right-aligned, leaving the corner to the gear. */
-    gfx_draw_text(W - 80 - gfx_text_w(st, 2), s_status_y, st, 2, W, COL_DIM);
+    gfx_draw_text(W - settings_gear_w() - gfx_text_w(st, FOOT_SCALE), s_status_y, st, FOOT_SCALE, W, COL_DIM);
     settings_draw_gear();
-    if (!kbd_present()) gfx_draw_text(MARGIN_X, s_status_y, "no keyboard", 2, W, COL_DIM);
-    if (s_caps)        gfx_draw_text(MARGIN_X + 15 * GFX_GLYPH_W(2), s_status_y, "caps", 2, W, COL_DIM);
+    if (!kbd_present()) gfx_draw_text(MARGIN_X, s_status_y, "no keyboard", FOOT_SCALE, W, COL_DIM);
+    if (s_caps)        gfx_draw_text(MARGIN_X + 15 * GFX_GLYPH_W(FOOT_SCALE), s_status_y, "caps", FOOT_SCALE, W, COL_DIM);
     if (!storage_present(STORAGE_SD)) {
-        gfx_draw_text(MARGIN_X + 21 * GFX_GLYPH_W(2), s_status_y, "no card", 2, W, COL_DIM);
+        gfx_draw_text(MARGIN_X + 21 * GFX_GLYPH_W(FOOT_SCALE), s_status_y, "no card", FOOT_SCALE, W, COL_DIM);
     } else if (s_save_failed) {
-        gfx_draw_text(MARGIN_X + 21 * GFX_GLYPH_W(2), s_status_y, "not saved", 2, W, COL_DIM);
+        gfx_draw_text(MARGIN_X + 21 * GFX_GLYPH_W(FOOT_SCALE), s_status_y, "not saved", FOOT_SCALE, W, COL_DIM);
     }
 
     gfx_blit(0, H);
@@ -428,6 +432,17 @@ static bool key(uint8_t usage, uint8_t mods)
     /* GUI is the app modifier (spec section 5): Windows key or Command. */
     if (gui) {
         switch (usage) {
+        case KBD_EQUAL:                 /* GUI+= (and GUI++): text larger */
+        case KBD_KP_PLUS:
+        case KBD_MINUS:                 /* GUI+-: smaller (0022) */
+        case KBD_KP_MINUS: {
+            const int up = usage == KBD_EQUAL || usage == KBD_KP_PLUS;
+            const int was = display_text_scale();
+            display_set_text_scale(was + (up ? 1 : -1));
+            if (display_text_scale() == was) return false;
+            measure();                  /* the redraw rewraps and finds the cursor */
+            return true;
+        }
         case KBD_LEFT:      s_cur = s_ls[cl]; return true;
         case KBD_RIGHT:     s_cur = line_cursor_max(cl); return true;
         case KBD_UP:        s_cur = 0; return true;
@@ -487,7 +502,7 @@ static const char *const k_type_legend[] = { "Enter: change to this", "Esc: back
 static const char *const k_dict_hint[] = { "D: download it (15 MB, over Wi-Fi)", "Any other key: close" };
 #define LEGEND_N(a)     ((int)(sizeof(a) / sizeof((a)[0])))
 #define LEGEND_GAP      "   "
-#define LEGEND_LH       (GFX_GLYPH_H(2) + 8)
+#define LEGEND_LH       (GFX_GLYPH_H(FOOT_SCALE) + 8)
 /* What a word may be typed as: a few words, if it was one run together. */
 #define SPELL_TYPE_MAX  (64)
 
@@ -511,7 +526,7 @@ typedef struct {
 static int legend(const char *const *part, int n, int y, bool draw)
 {
     const int room = gfx_w() - 2 * MARGIN_X;
-    const int gw = GFX_GLYPH_W(2);
+    const int gw = GFX_GLYPH_W(FOOT_SCALE);
     char line[160];
     int lines = 0;
     for (int i = 0; i < n; ) {
@@ -525,7 +540,7 @@ static int legend(const char *const *part, int n, int y, bool draw)
             strcat(line, part[i++]);
             len = strlen(line);
         }
-        if (draw) gfx_draw_text(MARGIN_X, y + lines * LEGEND_LH, line, 2, room, COL_DIM);
+        if (draw) gfx_draw_text(MARGIN_X, y + lines * LEGEND_LH, line, FOOT_SCALE, room, COL_DIM);
         lines++;
     }
     return lines;
@@ -581,12 +596,12 @@ static void spell_draw(const spell_view_t *v)
             const char *st = v->status;
             for (int l = 0; l < 2 && *st; l++) {
                 const char *next = st;
-                size_t n = gfx_wrap_line(st, 2, W - 2 * MARGIN_X, &next);
+                size_t n = gfx_wrap_line(st, FOOT_SCALE, W - 2 * MARGIN_X, &next);
                 char line[sizeof(v->status)];
                 if (l == 1 || n >= sizeof(line)) n = strlen(st) < sizeof(line) ? strlen(st) : sizeof(line) - 1;
                 memcpy(line, st, n);
                 line[n] = '\0';
-                gfx_draw_text(MARGIN_X, hy, line, 2, W - 2 * MARGIN_X, COL_TEXT);
+                gfx_draw_text(MARGIN_X, hy, line, FOOT_SCALE, W - 2 * MARGIN_X, COL_TEXT);
                 hy += LEGEND_LH;
                 if (next == st) break;
                 st = next;
@@ -608,14 +623,14 @@ static void spell_draw(const spell_view_t *v)
     gfx_draw_text(MARGIN_X, y, w, SPELL_SCALE, W - MARGIN_X, COL_BAD);
     if (v->note) {
         gfx_draw_text(MARGIN_X + ((int)n + 2) * GFX_GLYPH_W(SPELL_SCALE),
-                      y + GFX_GLYPH_H(SPELL_SCALE) - GFX_GLYPH_H(2), v->note, 2, W - MARGIN_X, COL_DIM);
+                      y + GFX_GLYPH_H(SPELL_SCALE) - GFX_GLYPH_H(FOOT_SCALE), v->note, FOOT_SCALE, W - MARGIN_X, COL_DIM);
     }
     y += row + 16;
     if (v->typing) {
         /* The field: the text, and a bar where the next letter goes. */
         const int gw = GFX_GLYPH_W(SPELL_SCALE);
-        gfx_draw_text(MARGIN_X, y, "Type it as it should be:", 2, W - MARGIN_X, COL_DIM);
-        const int fy = y + GFX_GLYPH_H(2) + 12;
+        gfx_draw_text(MARGIN_X, y, "Type it as it should be:", FOOT_SCALE, W - MARGIN_X, COL_DIM);
+        const int fy = y + GFX_GLYPH_H(FOOT_SCALE) + 12;
         gfx_fill_rect(MARGIN_X - 12, fy - 2 * SPELL_SCALE, W - 2 * MARGIN_X + 24,
                       GFX_GLYPH_H(SPELL_SCALE) + 4 * SPELL_SCALE, COL_FIELD);
         /* Wider than the field: the part around the cursor (0019). */
@@ -890,9 +905,11 @@ static void measure(void)
 {
     const int W = gfx_w();
     const int H = gfx_h();
+    s_scale  = display_text_scale();
+    s_foot   = display_foot_scale();
     s_cols   = (W - 2 * MARGIN_X) / GFX_GLYPH_W(EDITOR_SCALE);
     s_line_h = GFX_GLYPH_H(EDITOR_SCALE) + 4 * EDITOR_SCALE;
-    s_status_y = H - MARGIN_Y / 2 - GFX_GLYPH_H(2);
+    s_status_y = H - MARGIN_Y / 2 - GFX_GLYPH_H(FOOT_SCALE);
     s_rows   = (s_status_y - MARGIN_Y - 8) / s_line_h;
     ESP_LOGI(TAG, "%d columns, %d rows, scale %d", s_cols, s_rows, EDITOR_SCALE);
 }
@@ -906,10 +923,11 @@ esp_err_t editor_init(void)
     if (!s_text || !s_ls || !s_le || !s_base) return ESP_ERR_NO_MEM;
     ESP_RETURN_ON_ERROR(doclog_init(TEXT_MAX), TAG, "doclog");
 
-    /* A row is drawn from here: as wide as the wider way up, so turning
-     * the screen never reallocates it. */
+    /* A row is drawn from here: as wide as the wider way up at the
+     * smallest text, so neither turning the screen nor a text size
+     * (0022) ever reallocates it. */
     const int wide = gfx_w() > gfx_h() ? gfx_w() : gfx_h();
-    s_row_buf = heap_caps_malloc((size_t)((wide - 2 * MARGIN_X) / GFX_GLYPH_W(EDITOR_SCALE)) + 2,
+    s_row_buf = heap_caps_malloc((size_t)((wide - 2 * MARGIN_X) / GFX_GLYPH_W(DISPLAY_SCALE_MIN)) + 2,
                                  MALLOC_CAP_DEFAULT);
     if (!s_row_buf) return ESP_ERR_NO_MEM;
     measure();

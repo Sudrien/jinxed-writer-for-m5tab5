@@ -19,6 +19,7 @@ static const char *TAG = "display";
 #define NVS_NS      "jinxed"
 #define NVS_ROT     "rotation"
 #define NVS_THEME   "theme"
+#define NVS_SCALE   "scale"
 
 static int s_rot = DISPLAY_ROTATION_DEFAULT;
 
@@ -64,6 +65,33 @@ const display_theme_t *display_col = &k_themes[DISPLAY_THEME_DARK];
 
 int display_theme(void) { return s_theme; }
 
+static int s_scale = DISPLAY_SCALE_DEFAULT;
+
+int display_text_scale(void) { return s_scale; }
+
+/* A step under the text, as large as the status line still fits across
+ * the screen this way up: "no keyboard", "caps" at 15 glyphs and "not
+ * saved" at 21 (editor.c), room for "99999 words" after a gap, the
+ * margins, and the gear, whose width grows with it (settings.c). */
+int display_foot_scale(void)
+{
+    int f = s_scale - 1;
+    while (f > DISPLAY_SCALE_MIN &&
+           2 * 40 + (30 + 2 + 11) * GFX_GLYPH_W(f) + 58 + 11 * f > gfx_w()) f--;
+    return f < DISPLAY_SCALE_MIN ? DISPLAY_SCALE_MIN : f;
+}
+
+void display_set_text_scale(int scale)
+{
+    if (scale < DISPLAY_SCALE_MIN) scale = DISPLAY_SCALE_MIN;
+    if (scale > DISPLAY_SCALE_MAX) scale = DISPLAY_SCALE_MAX;
+    if (scale == s_scale) return;
+    s_scale = scale;
+    if (nvsh_set_u8(NVS_NS, NVS_SCALE, (uint8_t)scale) != ESP_OK) {
+        ESP_LOGW(TAG, "text size not kept; it holds until power-off");
+    }
+}
+
 void display_set_theme(int t)
 {
     if (t < 0 || t >= DISPLAY_THEMES) return;
@@ -101,6 +129,8 @@ esp_err_t display_init(void)
         s_theme = q;
         display_col = &k_themes[q];
     }
+    if (nvsh_get_u8(NVS_NS, NVS_SCALE, &q) == ESP_OK &&
+        q >= DISPLAY_SCALE_MIN && q <= DISPLAY_SCALE_MAX) s_scale = q;
 
     /* Paint before light: the backlight stays at zero until there is a
      * picture, so nothing flashes at power-on. */

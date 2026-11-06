@@ -60,6 +60,23 @@ int  display_rotation(void);
  * land on whatever is under it now. The caller redraws everything. */
 void display_set_rotation(int quarter_turns);
 
+/*
+ * The text size (0022): the editor's glyphs, ark12 scaled 2 to 5 times,
+ * 3 out of the box. Chosen with GUI+= / GUI+- in the editor or on the
+ * settings page, and kept in NVS. The status line, the gear and the
+ * spelling view's small print go one step smaller, never under 2, and
+ * no larger than the status line fits across the screen. The settings
+ * page itself stays as it is.
+ */
+#define DISPLAY_SCALE_MIN       (2)
+#define DISPLAY_SCALE_MAX       (5)
+#define DISPLAY_SCALE_DEFAULT   (3)
+
+int  display_text_scale(void);
+int  display_foot_scale(void);
+/* Clamped to MIN..MAX and kept. The caller re-measures and redraws. */
+void display_set_text_scale(int scale);
+
 /* Backlight, percent. Low on purpose. */
 #define DISPLAY_BACKLIGHT   (30)
 

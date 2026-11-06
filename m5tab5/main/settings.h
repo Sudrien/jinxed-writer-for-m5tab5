@@ -25,6 +25,10 @@
 /* The gear, drawn in the status line's right-hand corner. */
 void settings_draw_gear(void);
 
+/* How much of the status line's right end the gear takes (0022: it
+ * grows with the footer's text). */
+int  settings_gear_w(void);
+
 /* Whether a tap at (x, y), in screen coordinates, is on the gear.
  * Generous: the whole bottom-right corner. */
 bool settings_gear_hit(int x, int y);

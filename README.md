@@ -25,14 +25,14 @@ Not ready for human consumption yet. `writerdeck_spec.md` is the design;
   [jinxed-writer-spellcheck-dictionaries](https://github.com/Sudrien/jinxed-writer-spellcheck-dictionaries)
   over Wi-Fi, resumes where it stopped, and is checked before it is used.
 - **Settings** (the gear, or GUI+,): the email account, a test email,
-  which way up the screen is (kept across power-offs), and the library
+  which way up the screen is, the colours, the text size (also GUI+=
+  and GUI+- while writing), all kept across power-offs; and the library
   versions and licences.
 
 ## Not yet
 
 Scheduled and background email sends, sleep with the RTC alarm, idle dim
-and power-off, file mode, syntax highlighting, text scale, setting the
-clock. The spec describes each.
+and power-off, file mode, syntax highlighting, setting the clock. The spec describes each.
 
 ## Building
 

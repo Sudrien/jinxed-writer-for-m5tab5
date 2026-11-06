@@ -225,3 +225,4 @@ worked. A tag move keeps that line.
 - 0019 Settings: which way up, kept in NVS; narrow screens wrap
 - 0020 Docs: README, the spec's built-so-far line, esp_hosted's cap
 - 0021 Settings: Dark, Light, Green console and Orange console themes
+- 0022 Editor: text size 2-5, GUI+= / GUI+-, the footer and gear with it

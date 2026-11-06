@@ -44,13 +44,17 @@ static const char *TAG = "settings";
 #define DRAG_PX     (12)
 #define POLL_MS     (20)
 
-/* The gear: drawn in the status line, right corner. */
+/* The gear: drawn in the status line, right corner. Its sizes are for
+ * the footer's text at scale 2, and grow with it (0022): GZ() scales one. */
 #define GEAR_R      (11)
 #define GEAR_HIT_W  (140)
 #define GEAR_HIT_H  (90)
+#define GZ(n)       ((n) * display_foot_scale() / 2)
 
-static int gear_cx(void) { return gfx_w() - 40 / 2 - GEAR_R; }
-static int gear_cy(void) { return gfx_h() - 16 / 2 - GFX_GLYPH_H(2) / 2 - 8; }
+static int gear_cx(void) { return gfx_w() - 40 / 2 - GZ(GEAR_R); }
+static int gear_cy(void) { return gfx_h() - 16 / 2 - GFX_GLYPH_H(display_foot_scale()) / 2 - 8; }
+
+int settings_gear_w(void) { return 40 + 2 * GZ(GEAR_R) + 18; }
 
 void settings_draw_gear(void)
 {
@@ -59,14 +63,14 @@ void settings_draw_gear(void)
     static const int dx[8] = { 0, 7, 10, 7, 0, -7, -10, -7 };
     static const int dy[8] = { -10, -7, 0, 7, 10, 7, 0, -7 };
     const int cx = gear_cx(), cy = gear_cy();
-    for (int i = 0; i < 8; i++) gfx_fill_circle(cx + dx[i], cy + dy[i], 3, COL_DIM);
-    gfx_fill_circle(cx, cy, 8, COL_DIM);
-    gfx_fill_circle(cx, cy, 3, COL_BG);
+    for (int i = 0; i < 8; i++) gfx_fill_circle(cx + GZ(dx[i]), cy + GZ(dy[i]), GZ(3), COL_DIM);
+    gfx_fill_circle(cx, cy, GZ(8), COL_DIM);
+    gfx_fill_circle(cx, cy, GZ(3), COL_BG);
 }
 
 bool settings_gear_hit(int x, int y)
 {
-    return x >= gfx_w() - GEAR_HIT_W && y >= gfx_h() - GEAR_HIT_H;
+    return x >= gfx_w() - GZ(GEAR_HIT_W) && y >= gfx_h() - GZ(GEAR_HIT_H);
 }
 
 /* ---- input ------------------------------------------------------------ */
@@ -233,12 +237,21 @@ static const struct { int theme; const char *label; } k_theme[4] = {
     { DISPLAY_THEME_ORANGE, "Orange console" },
 };
 
+/* The text sizes (0022): one narrow button each, in a row. */
+#define SIZES   (DISPLAY_SCALE_MAX - DISPLAY_SCALE_MIN + 1)
+static int size_w(void)
+{
+    const int w = (gfx_w() - 2 * PAD - (SIZES - 1) * (PAD / 2)) / SIZES;
+    return w > 160 ? 160 : w;
+}
+
 /* Positions in content coordinates, from layout(). */
 typedef struct {
     int edit_y, forget_y;       /* buttons; forget_y < 0 when not shown */
     int test_y;                 /* the test button; < 0 when not shown */
     int rot_y;                  /* the first row of the four angles */
     int theme_y;                /* the first row of the four themes */
+    int size_y;                 /* the row of text sizes */
     int libs_y;                 /* first library row */
     int total_h;
 } page_t;
@@ -328,6 +341,7 @@ static page_t layout(bool draw, int scroll)
     y += 12;
     p.edit_y = y;
     const int bw = (W - 2 * PAD - PAD / 2) / 2;
+    const int sw = size_w();
     if (draw) button(PAD, off + y, bw, BTN_H, s_p.mail_ok ? "Edit account" : "Set up", COL_BTN);
     if (s_p.mail_ok) {
         p.forget_y = y;
@@ -376,6 +390,17 @@ static page_t layout(bool draw, int scroll)
     }
     y += 2 * (BTN_H + 16);
     TXT(y, "Colours, kept on this device.", COL_DIM);
+    y += LINE_H + 16;
+    /* 0022: the editor's text size, one button a size. This page stays
+     * at its own. */
+    p.size_y = y;
+    for (int i = 0; i < SIZES; i++) {
+        char l[2] = { (char)('0' + DISPLAY_SCALE_MIN + i), '\0' };
+        if (draw) button(PAD + i * (sw + PAD / 2), off + y, sw, BTN_H, l,
+                         DISPLAY_SCALE_MIN + i == display_text_scale() ? COL_GO : COL_BTN);
+    }
+    y += BTN_H + 16;
+    TXT(y, "Text size in the editor; GUI+= and GUI+- there.", COL_DIM);
     y += LINE_H + SECTION_GAP;
 
     /* Libraries */
@@ -504,6 +529,11 @@ void settings_page(void)
                     if (in_rect(in.x, cy, bx, by, bw, BTN_H) && k_rot[i].rot != display_rotation()) {
                         display_set_rotation(k_rot[i].rot);
                         want = 0;       /* the page is another shape now */
+                    }
+                } else if (cy >= p.size_y && cy < p.size_y + BTN_H) {
+                    for (int i = 0; i < SIZES; i++) {
+                        if (in_rect(in.x, cy, PAD + i * (size_w() + PAD / 2), p.size_y, size_w(), BTN_H))
+                            display_set_text_scale(DISPLAY_SCALE_MIN + i);
                     }
                 } else if (cy >= p.theme_y && cy < p.theme_y + 2 * (BTN_H + 16)) {
                     const int col = in.x >= PAD + bw + PAD / 2 ? 1 : 0;
