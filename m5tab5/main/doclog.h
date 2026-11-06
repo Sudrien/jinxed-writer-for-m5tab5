@@ -3,10 +3,13 @@
  * Spec section 4.
  *
  * The log is the document. Each record is one changeset: a subset of
- * Etherpad's Easysync with no attributes, no authors and no follow/merge
- * -- old length, new length, a list of keep / delete / insert ops and a
- * char bank holding the inserted bytes. Replaying every changeset from
- * the empty text gives the text.
+ * Etherpad's Easysync with no attribute pool and no follow/merge -- old
+ * length, new length, a list of keep / delete / insert ops and a char
+ * bank holding the inserted bytes. Replaying every changeset from the
+ * empty text gives the text. Authorship is kept, per changeset rather
+ * than per character: the record's source byte names the user or the
+ * spelling check (0011), where Easysync would put an `author` attribute
+ * from its pool on each op.
  *
  * Two twins, `<dir>/.<name>.h0` and `.h1`, each a complete log. Every
  * append goes to h0 and is fsynced and closed, and only then to h1, so a

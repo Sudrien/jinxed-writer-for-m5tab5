@@ -237,3 +237,4 @@ worked. A tag move keeps that line.
 - 0031 Editor: markdown bold, italic, strike, code and headings; a Highlighting switch
 - 0032 Editor: headings in heavy's wider cells, on feckless-libs v0.9.6; the previews in the spec
 - 0033 Editor: a selection, Shift with the movements, select all, copy, cut and paste
+- 0034 doclog.h: the log has authors, user and symspell, per changeset
