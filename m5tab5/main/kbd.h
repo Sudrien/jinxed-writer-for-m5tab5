@@ -111,6 +111,7 @@ char kbd_ascii(uint8_t usage, uint8_t mods, bool caps);
 #define KBD_F11         (0x44)
 #define KBD_F12         (0x45)
 #define KBD_K           (0x0E)
+#define KBD_N           (0x11)
 #define KBD_L           (0x0F)
 #define KBD_HOME        (0x4A)
 #define KBD_PAGEUP      (0x4B)

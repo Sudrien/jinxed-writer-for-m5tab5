@@ -12,6 +12,9 @@
  *                  keyboard or tapped; Forget clears it (tap twice);
  *                  Send test email (or Cmd+T) sends one through the
  *                  send task, its progress and result beside the button
+ *   Attribution    the name the user's edits are credited to in the log
+ *                  (0035), "user" until one is set; Change name, or
+ *                  Cmd+N, opens a one-line field
  *   Libraries      every library this build was made from, its version
  *                  and licence, from feckless_libversions' table
  *
@@ -34,6 +37,10 @@ int  settings_gear_w(void);
 /* Whether a tap at (x, y), in screen coordinates, is on the gear.
  * Generous: the whole bottom-right corner. */
 bool settings_gear_hit(int x, int y);
+
+/* 0035: the name the user's edits are credited to, kept in NVS
+ * (`jinxed`, `author`); NULL while it is the default, "user". */
+const char *settings_author(void);
 
 /* The page, until it is closed. Leaves the screen for the caller to
  * redraw, and swallows the press that closed it. */

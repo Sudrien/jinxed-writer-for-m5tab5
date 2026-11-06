@@ -71,18 +71,36 @@ static void tear(const char *p, long len, int garbage)
  * records checking each one's source byte came out as written. */
 static doclog_src_t src_of(int k) { return k % 3 == 0 ? DOCLOG_SRC_SYMSPELL : DOCLOG_SRC_USER; }
 
+/* 0035: who the k-th flush credits -- Ada first (id 1), Bob second (2),
+ * the default otherwise; a spelling flush is never anyone's. */
+static const char *author_of(int k) { return k % 4 == 1 ? "Ada" : k % 4 == 2 ? "Bob" : NULL; }
+static unsigned id_of(int k)
+{
+    if (src_of(k) != DOCLOG_SRC_USER || !author_of(k)) return 0;
+    return author_of(k)[0] == 'A' ? 1 : 2;
+}
+
 static void check_sources(const char *path, int flushes)
 {
     FILE *f = fopen(path, "rb");
     assert(f);
     long off = 64;
+    int names = 0;
     for (int k = 1; k <= flushes; k++) {
         unsigned char h[20];
         assert(fseek(f, off, SEEK_SET) == 0 && fread(h, 1, 20, f) == 20);
         const unsigned long n = h[0] | h[1] << 8 | h[2] << 16 | (unsigned long)h[3] << 24;
-        assert(h[6] == (unsigned char)src_of(k) && h[7] == 0);
         off += 20 + (long)n + 4;
+        if (h[4] == 2) {                /* an author record: Ada, then Bob */
+            unsigned char a[2 + 3];
+            assert(n == 5 && fseek(f, off - 4 - 5, SEEK_SET) == 0 && fread(a, 1, 5, f) == 5);
+            assert(a[0] == ++names && a[1] == 3 && !memcmp(a + 2, names == 1 ? "Ada" : "Bob", 3));
+            k--;
+            continue;
+        }
+        assert(h[4] == 1 && h[6] == (unsigned char)src_of(k) && h[7] == id_of(k));
     }
+    assert(names == (flushes >= 2 ? 2 : 1));
     fclose(f);
 }
 
@@ -123,7 +141,7 @@ int main(void)
             const int edits = 1 + rand() % 6;
             for (int e = 0; e < edits; e++) rnd_edit();
             assert(doclog_append(prev, prev_len, cur, cur_len, 1700000000 + k, k % 5 != 0,
-                                 src_of(k)) == 0);
+                                 src_of(k), author_of(k)) == 0);
             assert(doclog_seq() == (uint32_t)k);
             memcpy(prev, cur, cur_len); prev_len = cur_len;
             memcpy(hist[k], cur, cur_len); hist_len[k] = cur_len;
@@ -136,6 +154,8 @@ int main(void)
         assert(doclog_seq() == (uint32_t)flushes);
         check_sources(P0, flushes);
         check_sources(P1, flushes);
+        assert(doclog_author_id("Ada") == 1 && doclog_author_id(NULL) == 0);
+        assert(doclog_author_id("Bob") == (flushes >= 2 ? 2 : -1));
 
         /* Now damage. */
         const int mode = rand() % 4;
@@ -188,7 +208,7 @@ int main(void)
             assert(s <= (uint32_t)flushes);
             assert(len == hist_len[s] && memcmp(got, hist[s], len) == 0);
             /* And appending from there works and replays. */
-            assert(doclog_append(got, len, "tail", 4, 1, true, DOCLOG_SRC_USER) == 0);
+            assert(doclog_append(got, len, "tail", 4, 1, true, DOCLOG_SRC_USER, "Ada") == 0);
             doclog_close();
             assert(doclog_open(NAME, got, &len, 0, false) == 0);
             assert(len == 4 && memcmp(got, "tail", 4) == 0);

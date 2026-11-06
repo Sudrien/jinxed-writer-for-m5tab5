@@ -55,6 +55,8 @@ static const char *TAG = "doclog";
 #define REC_HDR         (20)
 #define REC_CRC         (4)
 #define TYPE_CHANGESET  (1)
+#define TYPE_AUTHOR     (2)         /* 0035 */
+#define AUTHOR_REC_MAX  (REC_HDR + 2 + DOCLOG_AUTHOR_MAX + REC_CRC)
 #define FLAG_UNTRUSTED  (0x01)
 #define CS_HDR          (10)        /* old_len, new_len, n_ops */
 #define CS_OP           (5)
@@ -93,6 +95,12 @@ static hdr_t     s_hdr;
 static long      s_end;         /* append offset, same in both twins */
 static uint32_t  s_seq;
 static uint32_t  s_crc;
+
+/* 0035: the open log's authors, id 1 up; id 0 is "user" and never
+ * written. Rebuilt by every replay. */
+static char      s_names[DOCLOG_AUTHORS_MAX][DOCLOG_AUTHOR_MAX + 1];
+static int       s_n_names;
+static uint8_t   s_arec[AUTHOR_REC_MAX];
 
 /* ---- bytes ------------------------------------------------------------ */
 
@@ -263,16 +271,33 @@ static void scan(const char *path, char *text, uint32_t *len, scan_t *out)
     out->valid = true;
     out->end = HDR_LEN;
     out->crc = out->hdr.crc;
+    if (text) s_n_names = 0;
 
     for (;;) {
         if (fread(s_rec, 1, REC_HDR, f) != REC_HDR) break;
         const uint32_t n = get32(s_rec);
         if (n == 0 || n > s_rec_max - REC_HDR - REC_CRC) break;
-        if (s_rec[4] != TYPE_CHANGESET) break;
+        const uint8_t type = s_rec[4];
+        if (type != TYPE_CHANGESET && type != TYPE_AUTHOR) break;
         if (fread(s_rec + REC_HDR, 1, n + REC_CRC, f) != n + REC_CRC) break;
         const uint32_t c = crc32c(out->crc, s_rec, REC_HDR + n);
         if (c != get32(s_rec + REC_HDR + n)) break;
         const uint32_t seq = get32(s_rec + 8);
+        if (type == TYPE_AUTHOR) {
+            /* 0035: names an author; takes no seq of its own. Its id is
+             * the next one, and the name fits. */
+            const uint8_t *a = s_rec + REC_HDR;
+            if (seq != out->seq || n < 3 || n != 2u + a[1] || a[1] > DOCLOG_AUTHOR_MAX) break;
+            if (text) {
+                if (a[0] != s_n_names + 1 || s_n_names >= DOCLOG_AUTHORS_MAX) break;
+                memcpy(s_names[s_n_names], a + 2, a[1]);
+                s_names[s_n_names][a[1]] = '\0';
+                s_n_names++;
+            }
+            out->crc = c;
+            out->end += REC_HDR + n + REC_CRC;
+            continue;
+        }
         if (seq != out->seq + 1) break;
         if (text) {
             uint32_t nl;
@@ -410,25 +435,28 @@ static bool recover(char *text, uint32_t *len)
     return true;
 }
 
-static bool encode_record(uint32_t payload, int64_t now, bool now_ok, doclog_src_t src, size_t *n)
+/* 0035: any record into `r`, its payload already at r + REC_HDR. A
+ * changeset takes the next seq; an author record repeats the last. */
+static bool encode_record(uint8_t *r, uint8_t type, uint32_t payload, int64_t now, bool now_ok,
+                          doclog_src_t src, uint8_t author, size_t *n)
 {
-    put32(s_rec, payload);
-    s_rec[4] = TYPE_CHANGESET;
-    s_rec[5] = now_ok ? 0 : FLAG_UNTRUSTED;
-    s_rec[6] = (uint8_t)src;
-    s_rec[7] = 0;
-    put32(s_rec + 8, s_seq + 1);
-    put64(s_rec + 12, now_ok ? now : 0);
-    const uint32_t c = crc32c(s_crc, s_rec, REC_HDR + payload);
-    put32(s_rec + REC_HDR + payload, c);
+    put32(r, payload);
+    r[4] = type;
+    r[5] = now_ok ? 0 : FLAG_UNTRUSTED;
+    r[6] = (uint8_t)src;
+    r[7] = author;
+    put32(r + 8, type == TYPE_CHANGESET ? s_seq + 1 : s_seq);
+    put64(r + 12, now_ok ? now : 0);
+    const uint32_t c = crc32c(s_crc, r, REC_HDR + payload);
+    put32(r + REC_HDR + payload, c);
     *n = REC_HDR + payload + REC_CRC;
     return true;
 }
 
-static esp_err_t append_cs(uint32_t payload, int64_t now, bool now_ok, doclog_src_t src)
+static esp_err_t append_cs(uint32_t payload, int64_t now, bool now_ok, doclog_src_t src, uint8_t author)
 {
     size_t n;
-    encode_record(payload, now, now_ok, src, &n);
+    encode_record(s_rec, TYPE_CHANGESET, payload, now, now_ok, src, author, &n);
     const uint32_t c = get32(s_rec + REC_HDR + payload);
     if (!append_record(s_rec, n)) return ESP_FAIL;
     s_end += (long)n;
@@ -488,11 +516,12 @@ static esp_err_t create_log(const char *name, char *text, uint32_t *len,
     s_end = HDR_LEN;
     s_seq = 0;
     s_crc = s_hdr.crc;
+    s_n_names = 0;
     s_open = true;
     *len = 0;
     if (n) {
         const uint32_t p = cs_make(s_rec + REC_HDR, "", 0, text, n);
-        if (append_cs(p, when, when_ok, DOCLOG_SRC_USER) != ESP_OK) { s_open = false; return ESP_FAIL; }
+        if (append_cs(p, when, when_ok, DOCLOG_SRC_USER, 0) != ESP_OK) { s_open = false; return ESP_FAIL; }
         *len = n;
     }
     return ESP_OK;
@@ -528,16 +557,54 @@ bool doclog_is_open(void) { return s_open; }
 uint32_t doclog_seq(void) { return s_seq; }
 void doclog_close(void)   { s_open = false; }
 
+int doclog_author_id(const char *name)
+{
+    if (!name || !name[0]) return 0;
+    for (int i = 0; i < s_n_names; i++) {
+        if (strcmp(s_names[i], name) == 0) return i + 1;
+    }
+    return -1;
+}
+
+/* 0035: the id `name` is credited as, writing its author record first
+ * if this log has not named it yet. 0 for the default, for a name too
+ * long, when the table is full, or when the record cannot be written --
+ * the edit is then the user's, unnamed, rather than lost. */
+static uint8_t author_for(const char *name, int64_t now, bool now_ok)
+{
+    const int known = doclog_author_id(name);
+    if (known >= 0) return (uint8_t)known;
+    const size_t len = strlen(name);
+    if (len > DOCLOG_AUTHOR_MAX || s_n_names >= DOCLOG_AUTHORS_MAX) {
+        ESP_LOGW(TAG, "author not recorded (%s); the edit is the user's",
+                 len > DOCLOG_AUTHOR_MAX ? "name too long" : "too many names");
+        return 0;
+    }
+    uint8_t *a = s_arec + REC_HDR;
+    a[0] = (uint8_t)(s_n_names + 1);
+    a[1] = (uint8_t)len;
+    memcpy(a + 2, name, len);
+    size_t n;
+    encode_record(s_arec, TYPE_AUTHOR, 2 + (uint32_t)len, now, now_ok, DOCLOG_SRC_USER, 0, &n);
+    if (!append_record(s_arec, n)) return 0;
+    s_end += (long)n;
+    s_crc = get32(s_arec + n - REC_CRC);
+    memcpy(s_names[s_n_names], name, len);
+    s_names[s_n_names][len] = '\0';
+    return (uint8_t)++s_n_names;
+}
+
 esp_err_t doclog_append(const char *old, uint32_t old_len,
                         const char *neu, uint32_t new_len,
-                        int64_t now, bool now_ok, doclog_src_t src)
+                        int64_t now, bool now_ok, doclog_src_t src, const char *author)
 {
     if (!s_open) return ESP_ERR_INVALID_STATE;
     if (old_len == new_len && memcmp(old, neu, old_len) == 0) return ESP_OK;
     if (!VOL_PRESENT()) return ESP_ERR_INVALID_STATE;
     VOL_HOLD();
+    const uint8_t id = src == DOCLOG_SRC_USER && author ? author_for(author, now, now_ok) : 0;
     const uint32_t p = cs_make(s_rec + REC_HDR, old, old_len, neu, new_len);
-    const esp_err_t err = append_cs(p, now, now_ok, src);
+    const esp_err_t err = append_cs(p, now, now_ok, src, id);
     VOL_RELEASE();
     return err;
 }

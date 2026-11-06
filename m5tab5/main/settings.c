@@ -28,6 +28,8 @@
 #include "libversions.h"
 #include "mailcfg.h"
 #include "mailform.h"
+#include "doclog.h"
+#include "nvs_handler.h"
 #include "sender.h"
 
 static const char *TAG = "settings";
@@ -155,6 +157,106 @@ static bool back_hit(int x, int y)
     return y < HEAD_H && x >= back_x() - PAD / 2;
 }
 
+/* ---- attribution (0035) ------------------------------------------------ */
+
+#define NVS_NS          "jinxed"
+#define NVS_AUTHOR      "author"
+#define AUTHOR_DEFAULT  "user"
+
+static char s_author[DOCLOG_AUTHOR_MAX + 1];
+static bool s_author_loaded;
+
+const char *settings_author(void)
+{
+    if (!s_author_loaded) {
+        size_t n = sizeof(s_author);
+        if (nvsh_get_str(NVS_NS, NVS_AUTHOR, s_author, &n) != ESP_OK) s_author[0] = '\0';
+        s_author[DOCLOG_AUTHOR_MAX] = '\0';
+        s_author_loaded = true;
+    }
+    return s_author[0] ? s_author : NULL;
+}
+
+/* Kept, trimmed of spaces at the ends; "" or "user" is the default. */
+static void set_author(const char *name, size_t n)
+{
+    if (n > DOCLOG_AUTHOR_MAX) n = DOCLOG_AUTHOR_MAX;
+    while (n > 0 && name[0] == ' ') { name++; n--; }
+    while (n > 0 && name[n - 1] == ' ') n--;
+    if (n == strlen(AUTHOR_DEFAULT) && !memcmp(name, AUTHOR_DEFAULT, n)) n = 0;
+    memcpy(s_author, name, n);
+    s_author[n] = '\0';
+    s_author_loaded = true;
+    const esp_err_t e = n ? nvsh_set_str(NVS_NS, NVS_AUTHOR, s_author)
+                          : nvsh_erase_key(NVS_NS, NVS_AUTHOR);
+    if (e != ESP_OK && !(n == 0 && e == ESP_ERR_NOT_FOUND)) {
+        ESP_LOGW(TAG, "name not kept; it holds until power-off");
+    }
+}
+
+static int wrapped(int x, int y, const char *s, int max_w, int max_lines, uint16_t c, bool draw);
+
+/* One line, full window: the name, typed. Enter keeps it, Esc or Back
+ * leaves it as it was. Printable ASCII, up to DOCLOG_AUTHOR_MAX. */
+static void name_form(void)
+{
+    char t[DOCLOG_AUTHOR_MAX + 1];
+    const char *now = settings_author();
+    snprintf(t, sizeof t, "%s", now ? now : "");
+    int len = (int)strlen(t), cur = len;
+    bool caps = false;
+    input_reset();
+    for (;;) {
+        const int W = gfx_w(), H = gfx_h();
+        gfx_fill_rect(0, 0, W, H, COL_BG);
+        header("Attribution");
+        int y = HEAD_H + 32;
+        gfx_draw_text(PAD, y, "Your edits are credited to:", SCALE, W - 2 * PAD, COL_DIM);
+        y += LINE_H + 12;
+        const int gw = GFX_GLYPH_W(SCALE);
+        gfx_fill_rect(PAD - 12, y - 8, W - 2 * PAD + 24, TEXT_H + 16, COL_FIELD);
+        gfx_draw_text(PAD, y, t, SCALE, W - 2 * PAD, COL_TEXT);
+        gfx_fill_rect(PAD + cur * gw, y - 2, 2 * SCALE, TEXT_H + 4, COL_CURSOR);
+        y += TEXT_H + 32;
+        y += wrapped(PAD, y, "Empty is \"user\". Kept on this device; written into each "
+                     "day's log the first time you edit it.", W - 2 * PAD, 3, COL_DIM, true) * LINE_H;
+        gfx_draw_text(PAD, y + 8, "Enter: keep   Esc: cancel", SCALE, W - 2 * PAD, COL_DIM);
+        gfx_blit(0, H);
+
+        input_t in;
+        do in = input_poll(); while (in.kind == IN_NONE || in.kind == IN_DRAG);
+        if (in.kind == IN_TAP) {
+            if (back_hit(in.x, in.y)) break;
+            continue;
+        }
+        switch (in.usage) {
+        case KBD_ESCAPE:    goto out;
+        case KBD_ENTER:
+        case KBD_KP_ENTER:  set_author(t, (size_t)len); ESP_LOGI(TAG, "attribution set"); goto out;
+        case KBD_CAPSLOCK:  caps = !caps; continue;
+        case KBD_LEFT:      if (cur > 0) cur--; continue;
+        case KBD_RIGHT:     if (cur < len) cur++; continue;
+        case KBD_HOME:      cur = 0; continue;
+        case KBD_END:       cur = len; continue;
+        case KBD_BACKSPACE:
+            if (cur > 0) { memmove(t + cur - 1, t + cur, (size_t)(len - cur + 1)); cur--; len--; }
+            continue;
+        case KBD_DELETE:
+            if (cur < len) { memmove(t + cur, t + cur + 1, (size_t)(len - cur)); len--; }
+            continue;
+        default: break;
+        }
+        if (in.mods & (KBD_MOD_CTRL | KBD_MOD_GUI | KBD_MOD_ALT)) continue;
+        const char c = kbd_ascii(in.usage, in.mods, caps);
+        if (c < ' ' || c > '~' || len >= DOCLOG_AUTHOR_MAX) continue;
+        memmove(t + cur + 1, t + cur, (size_t)(len - cur + 1));
+        t[cur++] = c;
+        len++;
+    }
+out:
+    input_reset();
+}
+
 /* ---- the email form, full window -------------------------------------- */
 
 /* The form until Save or Cancel. True if an account was saved. */
@@ -255,6 +357,7 @@ typedef struct {
     int theme_y;                /* the first row of the four themes */
     int size_y;                 /* the row of text sizes */
     int md_y;                   /* Markdown / None (0031) */
+    int name_y;                 /* Change name (0035) */
     int libs_y;                 /* first library row */
     int total_h;
 } page_t;
@@ -421,6 +524,23 @@ static page_t layout(bool draw, int scroll)
     TXT(y, "**bold**, *italic*, ~~struck~~, `code`, # headings.", COL_DIM);
     y += LINE_H + SECTION_GAP;
 
+    /* Attribution (0035) */
+    RULE(y - SECTION_GAP / 2);
+    TXT(y, "Attribution", COL_TEXT);
+    y += LINE_H + 8;
+    {
+        const char *who = settings_author();
+        snprintf(line, sizeof(line), "Your edits are credited to %s.", who ? who : AUTHOR_DEFAULT);
+        TXT(y, line, COL_DIM);
+        y += LINE_H + 12;
+    }
+    p.name_y = y;
+    if (draw) button(PAD, off + y, bw, BTN_H, "Change name", COL_BTN);
+    y += BTN_H + 16;
+    TXT(y, kbd_apple() ? "In each day's log, from its next edit. Cmd+N here."
+                       : "In each day's log, from its next edit. Ctrl+N here.", COL_DIM);
+    y += LINE_H + SECTION_GAP;
+
     /* Libraries */
     RULE(y - SECTION_GAP / 2);
     TXT(y, "Libraries", COL_TEXT);
@@ -514,6 +634,9 @@ void settings_page(void)
                 load_mail();
                 redraw = true;
                 break;
+            case KBD_N:         /* Ctrl+N: the name (0035) */
+                if (gui) { name_form(); redraw = true; }
+                break;
             case KBD_T:         /* Ctrl+T: send a test (spec 5) */
                 if (gui) sender_test();
                 break;
@@ -550,6 +673,8 @@ void settings_page(void)
                         display_set_rotation(k_rot[i].rot);
                         want = 0;       /* the page is another shape now */
                     }
+                } else if (in_rect(in.x, cy, PAD, p.name_y, bw, BTN_H)) {
+                    name_form();
                 } else if (cy >= p.md_y && cy < p.md_y + BTN_H) {
                     if (in_rect(in.x, cy, PAD, p.md_y, bw, BTN_H)) display_set_markdown(true);
                     else if (in_rect(in.x, cy, PAD + bw + PAD / 2, p.md_y, bw, BTN_H)) display_set_markdown(false);

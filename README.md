@@ -32,7 +32,7 @@ Not ready for human consumption yet. `writerdeck_spec.md` is the design;
 - **F1** shows the keys for the keyboard plugged in, **F11** a bare page
   (no word count, no gear), **F12** page stats.
 - **Settings** (the gear, Ctrl+, or Command+,): the email account, a test email,
-  which way up the screen is, the colours, the text size (also Ctrl+=
+  the name your edits are credited to, which way up the screen is, the colours, the text size (also Ctrl+=
   and Ctrl+-, or Command, while writing), all kept across power-offs; and the library
   versions and licences.
 

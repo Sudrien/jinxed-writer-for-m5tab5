@@ -492,7 +492,7 @@ static bool save_tick(bool force)
     int64_t t;
     const bool t_ok = rtc_now(&t);
     const bool was_failed = s_save_failed;
-    if (doclog_append(s_base, s_base_len, s_text, s_len, t, t_ok, s_src) == ESP_OK) {
+    if (doclog_append(s_base, s_base_len, s_text, s_len, t, t_ok, s_src, settings_author()) == ESP_OK) {
         memcpy(s_base, s_text, s_len);
         s_base_len = s_len;
         s_pending = false;

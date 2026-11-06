@@ -29,12 +29,15 @@
  *
  *   records, back to back
  *     0   u32 payload length
- *     4   u8  type (1 changeset)
+ *     4   u8  type (1 changeset, 2 author)
  *     5   u8  flags (bit 0: time untrusted -- the RTC reported VLF)
  *     6   u8  source: who made it, a doclog_src_t (0 in logs written
  *             before there was one, which is "the user")
- *     7   u8  reserved, 0
- *     8   u32 seq, monotonic from 1
+ *     7   u8  author (0035): 0 the default, "user"; otherwise the id of
+ *             an author record earlier in this log. Only a user's
+ *             changeset carries one; the spelling check's are 0
+ *     8   u32 seq, monotonic from 1 over changesets; an author record
+ *             repeats the seq before it
  *     12  i64 time (RTC epoch, advisory)
  *     20  payload
  *     ..  u32 CRC-32C over bytes 0..19 and the payload, seeded with the
@@ -48,6 +51,14 @@
  *     u32 old_len, u32 new_len, u16 n_ops, then n_ops x { u8 op, u32 n }
  *     with op '=' keep, '-' delete, '+' insert, then the char bank. Text
  *     after the last op is kept implicitly, as in Easysync.
+ *
+ *   author payload (0035), Easysync's pool entry for one author
+ *     u8 id (the next, from 1), u8 len (1..DOCLOG_AUTHOR_MAX), the name
+ *     Written once per name per log, just before the first changeset
+ *     that names it, and only for a name other than the default: a log
+ *     with no name set has no author records. Firmware before 0035 stops
+ *     reading at an author record and writes over it and everything
+ *     after it, so a log with one must not be opened by that firmware.
  *
  * Not thread-safe: the editor is the only caller (spec section 6, "the
  * editor is the only log writer").
@@ -76,6 +87,10 @@ typedef enum {
     DOCLOG_SRC_SYMSPELL = 1,
 } doclog_src_t;
 
+/* 0035: an author's name, bytes, and how many one log can name. */
+#define DOCLOG_AUTHOR_MAX   (32)
+#define DOCLOG_AUTHORS_MAX  (32)
+
 /* Allocate buffers for texts of up to `cap` bytes. Once. */
 esp_err_t doclog_init(uint32_t cap);
 
@@ -92,13 +107,19 @@ bool doclog_is_open(void);
 
 /*
  * Append the changeset taking `old` to `neu` to both twins, made by
- * `src`. `old` must be the text the log replays to (the last appended or
+ * `src` -- and, for DOCLOG_SRC_USER, credited to `author` (0035): NULL
+ * or "" is the default, "user"; any other name is recorded in the log
+ * the first time it is used. `old` must be the text the log replays to (the last appended or
  * opened text). No-op when they are equal. On failure nothing is assumed
  * written; call again with the same `old` later.
  */
 esp_err_t doclog_append(const char *old, uint32_t old_len,
                         const char *neu, uint32_t new_len,
-                        int64_t now, bool now_ok, doclog_src_t src);
+                        int64_t now, bool now_ok, doclog_src_t src, const char *author);
+
+/* 0035: the id the open log credits `name` as: 0 for NULL or "", -1 if
+ * it has not named it. */
+int doclog_author_id(const char *name);
 
 /*
  * After the card came and went: is the log on the card still the one
