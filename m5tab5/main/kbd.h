@@ -87,6 +87,7 @@ char kbd_ascii(uint8_t usage, uint8_t mods, bool caps);
 
 /* Usages the editor acts on. HID Usage Tables, keyboard page. */
 #define KBD_A           (0x04)
+#define KBD_C           (0x06)
 #define KBD_D           (0x07)
 #define KBD_E           (0x08)
 #define KBD_I           (0x0C)
@@ -97,6 +98,8 @@ char kbd_ascii(uint8_t usage, uint8_t mods, bool caps);
 #define KBD_TAB         (0x2B)
 #define KBD_R           (0x15)
 #define KBD_T           (0x17)
+#define KBD_V           (0x19)
+#define KBD_X           (0x1B)
 #define KBD_SPACE       (0x2C)
 #define KBD_MINUS       (0x2D)
 #define KBD_EQUAL       (0x2E)      /* "+" shifted */

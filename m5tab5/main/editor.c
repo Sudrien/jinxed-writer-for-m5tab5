@@ -89,6 +89,13 @@ static uint32_t  s_len;
 static uint32_t  s_cur;
 static bool      s_caps;
 static int       s_want_col = -1;   /* up/down keep their column */
+/* 0033: the selection is [min, max) of the anchor and the cursor, or
+ * none. Any edit ends it (edited()). The clipboard is RAM only, kept
+ * until power-off, PSRAM; without it there is no copy or paste. */
+#define NO_ANCHOR       (UINT32_MAX)
+static uint32_t  s_anchor = NO_ANCHOR;
+static char     *s_clip;        /* TEXT_MAX bytes, PSRAM */
+static uint32_t  s_clip_len;
 
 /* Layout, rebuilt by layout(). Line i is s_text[s_ls[i], s_le[i]) on
  * screen, and the next line starts at s_ls[i + 1]. */
@@ -226,6 +233,15 @@ static uint32_t word_count(void)
     return n;
 }
 
+/* The selection, [a, b), or false when there is none. */
+static bool sel(uint32_t *a, uint32_t *b)
+{
+    if (s_anchor == NO_ANCHOR || s_anchor > s_len || s_anchor == s_cur) return false;
+    *a = s_anchor < s_cur ? s_anchor : s_cur;
+    *b = s_anchor < s_cur ? s_cur : s_anchor;
+    return true;
+}
+
 /* `rows` lines of text from line `top`, with s_text[hl_a, hl_b) marked
  * behind. After layout(). */
 /*
@@ -313,10 +329,13 @@ static void draw_rows(int top, int rows, uint32_t hl_a, uint32_t hl_b)
         if (styled) row_runs(rs, re, y, run_bg);
         const uint32_t a = hl_a > rs ? hl_a : rs;
         const uint32_t b = hl_b < re ? hl_b : re;
-        const int gw = a < b ? row_gw(l) : 0;
-        if (a < b) {
+        /* 0033: a selected newline, or the space a wrap broke at, is a
+         * cell past the row's text, so a selection shows across lines. */
+        const uint32_t end = (hl_a <= re && hl_b > re && re < s_len && re < line_next(l)) ? 1 : 0;
+        const int gw = (a < b || end) ? row_gw(l) : 0;
+        if (a < b || end) {
             gfx_fill_rect(MARGIN_X + (int)(a - rs) * gw - EDITOR_SCALE, y - EDITOR_SCALE,
-                          (int)(b - a) * gw + EDITOR_SCALE,
+                          (int)(b - a + end) * gw + EDITOR_SCALE,
                           GFX_GLYPH_H(EDITOR_SCALE) + 2 * EDITOR_SCALE, COL_BTN);
         }
         if (styled) {
@@ -349,7 +368,9 @@ static void redraw(void)
     const int W = gfx_w();
     const int H = gfx_h();
     gfx_fill_rect(0, 0, W, H, COL_BG);
-    draw_rows(s_top, s_rows, 0, 0);
+    uint32_t sa = 0, sb = 0;
+    sel(&sa, &sb);
+    draw_rows(s_top, s_rows, sa, sb);
 
     /* A bar before the character, as tall as the glyph -- in a heading's
      * wider cells on a heading (0032). */
@@ -397,6 +418,7 @@ static void edited(void)
     }
     s_pending = true;
     s_last_edit = now;
+    s_anchor = NO_ANCHOR;           /* 0033: an edit ends the selection */
 }
 
 /*
@@ -609,7 +631,7 @@ static uint32_t para_next_end(uint32_t p)
  * Ctrl+Home / End for the document. There the Windows key and Alt are
  * shortcuts for nothing (0028), as Notepad++ leaves Alt+arrows alone.
  */
-static bool key(const kbd_event_t *ev)
+static bool key_do(const kbd_event_t *ev)
 {
     const uint8_t usage = ev->usage, mods = ev->mods;
     const bool apple = ev->apple;
@@ -707,6 +729,92 @@ static bool key(const kbd_event_t *ev)
         return true;
     }
     return false;
+}
+
+/*
+ * 0033: selection, around key_do(). Shift with any movement key
+ * extends the selection from where the cursor was; a movement without
+ * it ends the selection, and plain Left / Right go to its start / end,
+ * as Word and the Mac do. Cmd+A selects all; Cmd+C / X / V copy, cut
+ * and paste. With a selection, typing, Enter, Tab, Backspace and Delete
+ * (with or without the word modifier) replace or delete it.
+ */
+static bool moves(uint8_t usage)
+{
+    return usage == KBD_LEFT || usage == KBD_RIGHT || usage == KBD_UP || usage == KBD_DOWN ||
+           usage == KBD_HOME || usage == KBD_END || usage == KBD_PAGEUP || usage == KBD_PAGEDOWN;
+}
+
+static bool key(const kbd_event_t *ev)
+{
+    const uint8_t usage = ev->usage, mods = ev->mods;
+    const bool shift = (mods & KBD_MOD_SHIFT) != 0;
+    const bool other = (mods & (KBD_MOD_CTRL | KBD_MOD_GUI | KBD_MOD_ALT)) != 0;
+    uint32_t a = 0, b = 0;
+    const bool has = sel(&a, &b);
+
+    if (moves(usage)) {
+        if (!shift && !other && has && (usage == KBD_LEFT || usage == KBD_RIGHT)) {
+            s_cur = usage == KBD_LEFT ? a : b;
+            s_anchor = NO_ANCHOR;
+            s_want_col = -1;
+            return true;
+        }
+        const uint32_t from = s_cur;
+        const bool r = key_do(ev);
+        if (shift) {
+            if (s_anchor == NO_ANCHOR) s_anchor = from;
+        } else if (s_anchor != NO_ANCHOR) {
+            s_anchor = NO_ANCHOR;
+            return true;
+        }
+        return r;
+    }
+
+    if (ev->cmd && !shift) {
+        switch (usage) {
+        case KBD_A:
+            s_anchor = 0;
+            s_cur = s_len;
+            s_want_col = -1;
+            return true;
+        case KBD_C:
+        case KBD_X:
+            if (!has || !s_clip) return false;
+            memcpy(s_clip, s_text + a, b - a);
+            s_clip_len = b - a;
+            if (usage == KBD_X) erase(a, b);
+            return usage == KBD_X;
+        case KBD_V:
+            if (!s_clip || !s_clip_len) return false;
+            if (s_len - (b - a) + s_clip_len > TEXT_MAX) {
+                ESP_LOGW(TAG, "paste does not fit");
+                return false;
+            }
+            s_want_col = -1;
+            if (has) erase(a, b);
+            insert(s_clip, s_clip_len);
+            return true;
+        default:
+            break;
+        }
+    }
+
+    if (has) {
+        /* Backspace and Delete, alone or with the keyboard's word or
+         * line modifier: the selection, and only it. */
+        const bool none = ev->apple ? (mods & KBD_MOD_CTRL) : (mods & (KBD_MOD_GUI | KBD_MOD_ALT));
+        if (!none && (usage == KBD_BACKSPACE || usage == KBD_DELETE)) {
+            s_want_col = -1;
+            erase(a, b);
+            return true;
+        }
+        const char c = other ? 0 : kbd_ascii(usage, mods, s_caps);
+        if (usage == KBD_TAB || c == '\n' || (c >= 0x20 && c < 0x7F)) {
+            erase(a, b);                /* then typed where it was */
+        }
+    }
+    return key_do(ev);
 }
 
 static bool repeats(uint8_t usage)
@@ -1009,6 +1117,9 @@ static const sheet_row_t k_keys_pc[] = {
     { "PageUp / PageDown",       "a screen up / down" },
     { "Ctrl+Backspace / Delete", "delete the word before / after" },
     { "Ctrl+L, Ctrl+Shift+K",    "delete the line" },
+    { "Shift + any of those moves", "select" },
+    { "Ctrl+A",                  "select all" },
+    { "Ctrl+C / X / V",          "copy / cut / paste" },
     { "F7",                      "check spelling" },
     { "Ctrl+= / Ctrl+-",         "text larger / smaller" },
     { "Ctrl+,",                  "settings" },
@@ -1024,6 +1135,9 @@ static const sheet_row_t k_keys_apple[] = {
     { "PageUp / PageDown",       "a screen up / down" },
     { "Option+Delete",           "delete the word before" },
     { "Command+Delete",          "delete to the line's start" },
+    { "Shift + any of those moves", "select" },
+    { "Command+A",               "select all" },
+    { "Command+C / X / V",       "copy / cut / paste" },
     { "Command+; or F7",         "check spelling" },
     { "Command+= / Command+-",   "text larger / smaller" },
     { "Command+,",               "settings" },
@@ -1269,6 +1383,7 @@ esp_err_t editor_init(void)
     s_le      = heap_caps_malloc((TEXT_MAX + 2) * sizeof(uint32_t), MALLOC_CAP_SPIRAM);
     s_base    = heap_caps_malloc(TEXT_MAX, MALLOC_CAP_SPIRAM);
     s_mds     = heap_caps_malloc(TEXT_MAX, MALLOC_CAP_SPIRAM);   /* 0031; drawn plain without */
+    s_clip    = heap_caps_malloc(TEXT_MAX, MALLOC_CAP_SPIRAM);   /* 0033; no copy or paste without */
     if (!s_text || !s_ls || !s_le || !s_base) return ESP_ERR_NO_MEM;
     ESP_RETURN_ON_ERROR(doclog_init(TEXT_MAX), TAG, "doclog");
 
@@ -1356,6 +1471,7 @@ void editor_run(void)
 
         if (open_spell) {
             held = 0;
+            s_anchor = NO_ANCHOR;       /* the check moves the cursor */
             spell_view();
             touch_down = false;
             dirty = true;

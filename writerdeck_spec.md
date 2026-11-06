@@ -138,14 +138,14 @@ Which mode the device runs in is chosen on the **settings page** (section 7) and
 | **Typing** | | | |
 | Four spaces / remove up to four leading spaces | Tab / Shift+Tab | Tab / Shift+Tab | ✓ / planned |
 | Caps (shown in the status line) | Caps Lock | Caps Lock | ✓ |
-| **Selecting** (needs a selection) | | | |
-| Extend by character / line | Shift+arrows | Shift+arrows | planned |
-| Extend by word / paragraph | Ctrl+Shift+arrows | Option+Shift+arrows | planned |
-| Extend to the line's start / end | Shift+Home / End | Command+Shift+Left / Right | planned |
-| Extend to the document's start / end | Ctrl+Shift+Home / End | Command+Shift+Up / Down | planned |
-| Select all | Ctrl+A | Command+A | planned |
+| **Selecting** (0033) | | | |
+| Extend by character / line / screen | Shift+arrows, Shift+PageUp / PageDown | Shift+arrows, Shift+PageUp / PageDown | ✓ |
+| Extend by word / paragraph | Ctrl+Shift+arrows | Option+Shift+arrows | ✓ |
+| Extend to the line's start / end | Shift+Home / End | Command+Shift+Left / Right | ✓ |
+| Extend to the document's start / end | Ctrl+Shift+Home / End | Command+Shift+Up / Down | ✓ |
+| Select all | Ctrl+A | Command+A | ✓ |
 | **Editing** | | | |
-| Copy / cut / paste | Ctrl+C / X / V | Command+C / X / V | planned |
+| Copy / cut / paste | Ctrl+C / X / V | Command+C / X / V | ✓ |
 | Undo | Ctrl+Z | Command+Z | planned |
 | Redo | Ctrl+Y, or Ctrl+Shift+Z | Command+Shift+Z | planned |
 | **The document and the app** | | | |
@@ -173,7 +173,8 @@ Held keys repeat. A chord with Ctrl, Command, Alt or the Windows key types nothi
 - **Ctrl+; is not the spelling key on Windows** (0028): Word has none, and it is Excel's insert-the-date. F7 is.
 - **F keys are extra routes, not the only ones** (0029), except F1, F11 and F12, which have no other key: a 60% keyboard reaches them on its Fn layer, and some "for Mac" keyboards send media keys there unless Fn is held. F2, F4, F10 and Word's F12 (Save As) are not used: rename, repeat, a menu bar and Save As have no meaning here. F12 is page stats.
 - **Undo never removes anything from the log** (section 4). It appends a new changeset that reverses the last one, so every word typed stays in the history.
-- **Selection comes first.** Copy, cut, paste and the Shift movements all rest on the editor having a selection, and a RAM clipboard. Until then those rows stay planned.
+- **The selection** (0033) runs from where Shift was first held with a movement to the cursor, drawn behind the text as the spelling mark is; a selected newline shows as one cell. A movement without Shift ends it, and plain Left / Right go to its start / end. Typing, Enter and Tab replace it; Backspace and Delete, with or without the word modifier, delete it and only it. Any edit, and the spelling check, end it. Copy with nothing selected does nothing (Word's way, not VS Code's copy-the-line).
+- **The clipboard is RAM only**, one TEXT_MAX buffer in PSRAM, kept until power-off and never written to the card. Nothing outside the Tab5 can paste into it or from it. A paste that would pass the 256 KB limit does nothing.
 - **Not carried over from Word:** bold, italic, underline, alignment, styles, page breaks, tables, print. The text is plain.
 - **No Emacs keys on an Apple keyboard** (Ctrl+A / E / K): macOS gives them to its text fields; this is a text area, and Command covers the same ground (0028).
 

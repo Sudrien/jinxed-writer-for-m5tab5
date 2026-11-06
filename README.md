@@ -12,7 +12,8 @@ Not ready for human consumption yet. `writerdeck_spec.md` is the design;
 - **Writing.** One file a day, `jinxed/YYYY-MM-DD.md` on the card, opened
   at the end. The keys are in the spec, section 5:
   Windows' on a PC keyboard (Ctrl; the Windows key does nothing), the
-  Mac's on an Apple one (Command and Option).
+  Mac's on an Apple one (Command and Option). Shift with any movement
+  selects; Cmd+A, and Cmd+C / X / V with a clipboard kept until power-off.
 - **Nothing lost.** The document is a log of every edit, written twice
   (`.YYYY-MM-DD.md.h0` and `.h1`) and recovered from whichever twin is
   longer after a power cut; the `.md` is regenerated from it. Each edit
