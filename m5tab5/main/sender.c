@@ -30,6 +30,7 @@
 #include "mailcfg.h"
 #include "mailsend.h"
 #include "rtc8130.h"
+#include "doclog.h"
 #include "spell.h"
 #include "storage.h"
 #include "tab5io.h"
@@ -60,7 +61,13 @@ static const char *TAG = "sender";
 #define FETCH_TRIES     (3)
 #define FETCH_RETRY_MS  (2000)
 
-typedef enum { JOB_TEST, JOB_DICT } job_t;
+typedef enum { JOB_TEST, JOB_DICT, JOB_DOC } job_t;
+
+/* 0038: a document's copy for its send, PSRAM, made once: the editor's
+ * whole text, the footer and a NUL. */
+#define DOC_MAX         (256 * 1024 + DOCLOG_FOOT_MAX + 1)
+static char              *s_doc;
+static char               s_subject[96];
 
 static TaskHandle_t       s_task;
 static volatile job_t     s_job;
@@ -109,7 +116,13 @@ static bool online(void) { return wifi_connected() || net_online(); }
 
 /* ---- one send ----------------------------------------------------------- */
 
-static void test_send(void)
+/*
+ * One message, start to end: the radio, a network, the account, the
+ * send, each with spec 6's line. 0038 lifted this out of test_send()
+ * unchanged but for the subject and body, so the test and a document go
+ * the same way.
+ */
+static void send_one(const char *subject, const char *body)
 {
     const int64_t t0 = esp_timer_get_time();
     const bool configured = mailcfg_load(NULL, &s_cfg);
@@ -136,19 +149,23 @@ static void test_send(void)
         if (!rtc8130_read(&now)) now = 0;
         const int64_t left_ms = (int64_t)MAILSEND_TIMEOUT_MS - (esp_timer_get_time() - t0) / 1000;
         mailsend_result_t r;
-        mailsend(&s_cfg, "Jinxed Writer: test",
-                 "This is a test message from Jinxed Writer.\n"
-                 "\n"
-                 "If it arrived, the email account on the settings page works,\n"
-                 "and notes will be able to reach this address.\n",
-                 now, left_ms > 1000 ? (uint32_t)left_ms : 1000, &r);
+        mailsend(&s_cfg, subject, body, now, left_ms > 1000 ? (uint32_t)left_ms : 1000, &r);
         if (r.err == MAILSEND_OK) snprintf(line, sizeof line, "sent to %s", dom);
         else                      snprintf(line, sizeof line, "not sent: %s", r.why);
         set_line(line);
     }
     mailcfg_wipe(&s_cfg);
     radio(false);
-    ESP_LOGI(TAG, "test send done in %lld ms", (long long)((esp_timer_get_time() - t0) / 1000));
+    ESP_LOGI(TAG, "send done in %lld ms", (long long)((esp_timer_get_time() - t0) / 1000));
+}
+
+static void test_send(void)
+{
+    send_one("Jinxed Writer: test",
+             "This is a test message from Jinxed Writer.\n"
+             "\n"
+             "If it arrived, the email account on the settings page works,\n"
+             "and notes will be able to reach this address.\n");
 }
 
 /* ---- the dictionary ------------------------------------------------------ */
@@ -262,8 +279,9 @@ static void send_task(void *arg)
     (void)arg;
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        if (s_job == JOB_DICT) fetch_dict();
-        else                   test_send();
+        if (s_job == JOB_DICT)     fetch_dict();
+        else if (s_job == JOB_DOC) send_one(s_subject, s_doc);
+        else                       test_send();
         s_busy = false;
         s_gen++;
     }
@@ -302,6 +320,23 @@ bool sender_test(void)
     if (!s_task || s_busy) return false;
     s_busy = true;
     s_job = JOB_TEST;
+    set_line("Starting...");
+    xTaskNotifyGive(s_task);
+    return true;
+}
+
+bool sender_send_doc(const char *name, const char *range, const char *text, uint32_t len,
+                     const char *foot)
+{
+    if (!s_task || s_busy) return false;
+    if (!s_doc) s_doc = heap_caps_malloc(DOC_MAX, MALLOC_CAP_SPIRAM);
+    const size_t fl = foot ? strlen(foot) : 0;
+    if (!s_doc || (size_t)len + fl + 1 > DOC_MAX) return false;
+    s_busy = true;
+    memcpy(s_doc, text, len);
+    memcpy(s_doc + len, foot ? foot : "", fl + 1);
+    snprintf(s_subject, sizeof s_subject, "Jinxed Writer: %.32s, %.40s", name, range);
+    s_job = JOB_DOC;
     set_line("Starting...");
     xTaskNotifyGive(s_task);
     return true;

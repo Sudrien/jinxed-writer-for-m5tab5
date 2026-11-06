@@ -163,6 +163,9 @@ static bool back_hit(int x, int y)
 #define NVS_AUTHOR      "author"
 #define AUTHOR_DEFAULT  "user"
 
+static bool (*s_send)(void);
+void settings_on_send(bool (*send)(void)) { s_send = send; }
+
 static char s_author[DOCLOG_AUTHOR_MAX + 1];
 static bool s_author_loaded;
 
@@ -465,6 +468,7 @@ static page_t layout(bool draw, int scroll)
         p.test_y = y;
         if (draw) button(PAD, off + y, bw, BTN_H, busy ? "Sending..." : "Send test email",
                          busy ? COL_GO : COL_BTN);
+        if (draw && s_send) button(PAD + bw + PAD / 2, off + y, bw, BTN_H, "Send notes now", COL_BTN);
         y += BTN_H + 16;
         /* Under the button, the page's width and two lines of it: a
          * failure sentence is long, and the page may be on end (0019). */
@@ -630,6 +634,10 @@ void settings_page(void)
             case KBD_END:      want = max_scroll(&p); break;
             case KBD_ENTER:
             case KBD_KP_ENTER:
+                if (gui) {              /* 0038: Cmd+Enter, as in the editor */
+                    if (s_send) s_send();
+                    break;
+                }
                 if (email_form()) ESP_LOGI(TAG, "email account saved");
                 load_mail();
                 redraw = true;
@@ -660,6 +668,8 @@ void settings_page(void)
                 const int bw = (gfx_w() - 2 * PAD - PAD / 2) / 2;
                 if (p.test_y >= 0 && in_rect(in.x, cy, PAD, p.test_y, bw, BTN_H)) {
                     sender_test();      /* refused while one runs; the label says so */
+                } else if (s_send && p.test_y >= 0 && in_rect(in.x, cy, PAD + bw + PAD / 2, p.test_y, bw, BTN_H)) {
+                    s_send();
                 } else if (in_rect(in.x, cy, PAD, p.edit_y, bw, BTN_H)) {
                     if (email_form()) ESP_LOGI(TAG, "email account saved");
                     load_mail();

@@ -600,7 +600,6 @@ void doclog_close(void)   { s_open = false; }
  */
 #define FOOT_SEP        "\n\n---\n\n"
 #define FOOT_BRAND      "Jinxed Writer "
-#define FOOT_MAX        (160)
 
 static bool foot_line(const char *a, const char *b, const char *key)
 {
@@ -615,7 +614,7 @@ static uint32_t footer_strip(const char *t, uint32_t n)
 {
     const uint32_t sl = (uint32_t)strlen(FOOT_SEP);
     if (n < sl + strlen(FOOT_BRAND) + 1 || t[n - 1] != '\n') return n;
-    const uint32_t lo = n > FOOT_MAX + sl ? n - FOOT_MAX - sl : 0;
+    const uint32_t lo = n > DOCLOG_FOOT_MAX + sl ? n - DOCLOG_FOOT_MAX - sl : 0;
     for (uint32_t s = n - sl + 1; s-- > lo; ) {
         if (memcmp(t + s, FOOT_SEP, sl) != 0) continue;
         const char *p = t + s + sl, *end = t + n;
@@ -636,20 +635,27 @@ static uint32_t footer_strip(const char *t, uint32_t n)
     return n;
 }
 
+static uint32_t footer_make(char *f, const char *author, int64_t now, bool now_ok, const char *build);
+
+uint32_t doclog_footer(char *f, const char *author, int64_t now, bool now_ok, const char *build)
+{
+    return footer_make(f, author, now, now_ok, build);
+}
+
 static uint32_t footer_make(char *f, const char *author, int64_t now, bool now_ok, const char *build)
 {
-    int k = snprintf(f, FOOT_MAX, "%s", FOOT_SEP);
-    if (author && author[0]) k += snprintf(f + k, FOOT_MAX - (size_t)k, "author: %.40s  \n", author);
+    int k = snprintf(f, DOCLOG_FOOT_MAX, "%s", FOOT_SEP);
+    if (author && author[0]) k += snprintf(f + k, DOCLOG_FOOT_MAX - (size_t)k, "author: %.40s  \n", author);
     if (now_ok) {
         const time_t tt = (time_t)now;
         struct tm tm;
         gmtime_r(&tt, &tm);
-        k += snprintf(f + k, FOOT_MAX - (size_t)k, "exported: %04d-%02d-%02d %02d:%02d  \n",
+        k += snprintf(f + k, DOCLOG_FOOT_MAX - (size_t)k, "exported: %04d-%02d-%02d %02d:%02d  \n",
                       (tm.tm_year + 1900) % 10000, (tm.tm_mon + 1) % 100, tm.tm_mday % 100,
                       tm.tm_hour % 100, tm.tm_min % 100);
     }
-    k += snprintf(f + k, FOOT_MAX - (size_t)k, "%s%.40s\n", FOOT_BRAND, build && build[0] ? build : "?");
-    return k < FOOT_MAX ? (uint32_t)k : FOOT_MAX - 1;
+    k += snprintf(f + k, DOCLOG_FOOT_MAX - (size_t)k, "%s%.40s\n", FOOT_BRAND, build && build[0] ? build : "?");
+    return k < DOCLOG_FOOT_MAX ? (uint32_t)k : DOCLOG_FOOT_MAX - 1;
 }
 
 /* CRC-32C of a whole file, read to its end: a file the user supplies
@@ -724,7 +730,7 @@ esp_err_t doclog_export(const char *text, uint32_t len, const char *author,
     if (!VOL_PRESENT()) return ESP_ERR_INVALID_STATE;
     VOL_HOLD();
     esp_err_t err = ESP_OK;
-    static char foot[FOOT_MAX];
+    static char foot[DOCLOG_FOOT_MAX];
     const uint32_t flen = footer_make(foot, author, now, now_ok, build);
     const uint32_t body = crc32c(0, (const uint8_t *)text, len);
     const uint32_t neu = crc32c(body, (const uint8_t *)foot, flen);

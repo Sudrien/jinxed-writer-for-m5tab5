@@ -241,3 +241,4 @@ worked. A tag move keeps that line.
 - 0035 Attribution: the user's edits credited by name, an author record in the log
 - 0036 Export: the .md from the log, a sidecar for its hash, conflicts beside it; Ctrl+S
 - 0037 Export: a footer -- the author if set, the export time, the build
+- 0038 Send: today's notes by email now, Cmd+Enter or a button on the settings page

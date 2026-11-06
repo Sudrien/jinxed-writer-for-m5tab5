@@ -129,6 +129,12 @@ static TickType_t s_last_edit, s_first_edit;
 static bool      s_save_failed;
 static bool      s_export_due;  /* 0036: the log has more than the export */
 static bool      s_conflict;    /* the export was edited outside */
+/* 0038: a send of ours, and its line in the status line until
+ * SEND_SHOW_MS after it ends, or the next key. */
+#define SEND_SHOW_MS    (10000)
+static bool      s_sending;
+static char      s_send_line[160];  /* sender_status()'s line, whole */
+static TickType_t s_send_until;
 static bool      s_ever_open;
 static uint32_t  s_gen;
 static TickType_t s_attach_after;
@@ -394,6 +400,11 @@ static void redraw(void)
         settings_draw_gear();
     }
     if (!kbd_present()) gfx_draw_text(MARGIN_X, s_status_y, "no keyboard", FOOT_SCALE, W, COL_DIM);
+    if (s_send_line[0]) {               /* 0038: after the card's slot, up to the word count */
+        const int sx = MARGIN_X + 31 * GFX_GLYPH_W(FOOT_SCALE);
+        const int room = W - settings_gear_w() - gfx_text_w("000000 words", FOOT_SCALE) - sx;
+        if (room > 0) gfx_draw_text(sx, s_status_y, s_send_line, FOOT_SCALE, room, COL_DIM);
+    }
     if (s_caps)        gfx_draw_text(MARGIN_X + 15 * GFX_GLYPH_W(FOOT_SCALE), s_status_y, "caps", FOOT_SCALE, W, COL_DIM);
     if (!storage_present(STORAGE_SD)) {
         gfx_draw_text(MARGIN_X + 21 * GFX_GLYPH_W(FOOT_SCALE), s_status_y, "no card", FOOT_SCALE, W, COL_DIM);
@@ -542,6 +553,62 @@ static bool export_tick(bool force)
         s_last_edit = xTaskGetTickCount();  /* another pause's worth */
     }
     return was != s_conflict;
+}
+
+/*
+ * 0038: send today's text now, whole (spec 6: a full copy on a manual
+ * send), through the send task, after the log and the export are
+ * current. The subject names the seqs it covers, so a duplicate is
+ * plain; if the text could not be flushed (no card) it goes anyway,
+ * marked unsaved. The body ends in the export's footer. No checkpoint
+ * is written yet: the background send will need one, and its record.
+ */
+static bool send_now(void)
+{
+    save_tick(true);
+    export_tick(true);
+    char range[40], foot[DOCLOG_FOOT_MAX];
+    if (!s_pending && doclog_is_open())
+        snprintf(range, sizeof range, "seq 1-%lu", (unsigned long)doclog_seq());
+    else
+        snprintf(range, sizeof range, "not yet saved");
+    int64_t t;
+    const bool t_ok = rtc_now(&t);
+    const esp_app_desc_t *d = esp_app_get_description();
+    doclog_footer(foot, settings_author(), t, t_ok, d ? d->version : NULL);
+    const bool ok = sender_send_doc(s_name, range, s_text, s_len, foot);
+    if (ok) {
+        s_sending = true;
+        s_send_until = 0;
+    } else {
+        snprintf(s_send_line, sizeof s_send_line, "busy; send again in a moment");
+        s_send_until = xTaskGetTickCount() + pdMS_TO_TICKS(SEND_SHOW_MS);
+    }
+    return ok;
+}
+
+/* The send's line: what it is doing while it runs, how it went for a
+ * while after. True when the status line changed. */
+static bool send_tick(void)
+{
+    static uint32_t seen;
+    const uint32_t g = sender_gen();
+    if (s_sending && g != seen) {
+        seen = g;
+        char line[160];
+        const bool busy = sender_status(line, sizeof line);
+        snprintf(s_send_line, sizeof s_send_line, "%s", line);
+        if (!busy) {
+            s_sending = false;
+            s_send_until = xTaskGetTickCount() + pdMS_TO_TICKS(SEND_SHOW_MS);
+        }
+        return true;
+    }
+    if (!s_sending && s_send_line[0] && s_send_until && xTaskGetTickCount() >= s_send_until) {
+        s_send_line[0] = '\0';
+        return true;
+    }
+    return false;
 }
 
 /* The day's file name, from the RTC. Fixed for the session for now;
@@ -1159,6 +1226,7 @@ static const sheet_row_t k_keys_pc[] = {
     { "Ctrl+A",                  "select all" },
     { "Ctrl+C / X / V",          "copy / cut / paste" },
     { "Ctrl+S",                  "save now" },
+    { "Ctrl+Enter",              "email today's notes" },
     { "F7",                      "check spelling" },
     { "Ctrl+= / Ctrl+-",         "text larger / smaller" },
     { "Ctrl+,",                  "settings" },
@@ -1178,6 +1246,7 @@ static const sheet_row_t k_keys_apple[] = {
     { "Command+A",               "select all" },
     { "Command+C / X / V",       "copy / cut / paste" },
     { "Command+S",               "save now" },
+    { "Command+Enter",           "email today's notes" },
     { "Command+; or F7",         "check spelling" },
     { "Command+= / Command+-",   "text larger / smaller" },
     { "Command+,",               "settings" },
@@ -1435,6 +1504,7 @@ esp_err_t editor_init(void)
                                  MALLOC_CAP_DEFAULT);
     if (!s_row_buf) return ESP_ERR_NO_MEM;
     measure();
+    settings_on_send(send_now);         /* 0038: the settings page's button */
     pick_name();
     attach();
     redraw();
@@ -1479,12 +1549,17 @@ void editor_run(void)
                 save_tick(true);
                 export_tick(true);
                 dirty = true;
+            } else if (ev.down && ev.cmd && (ev.usage == KBD_ENTER || ev.usage == KBD_KP_ENTER)) {
+                held = 0;               /* 0038: send now, Cmd+Enter (spec 5) */
+                send_now();
+                dirty = true;
             } else if (ev.down && ev.usage == KBD_COMMA && ev.cmd) {
                 open_settings = true;       /* spec 7: from the keyboard too */
             } else if (ev.down && (ev.usage == KBD_F7 || (ev.usage == KBD_SEMICOLON && ev.cmd && ev.apple))) {
                 open_spell = true;          /* spec 5: Word's F7, the Mac's Cmd+; */
             } else if (ev.down) {
-                dirty = key(&ev);
+                if (!s_sending && s_send_line[0]) { s_send_line[0] = '\0'; dirty = true; }  /* 0038 */
+                dirty = key(&ev) || dirty;
                 if (repeats(ev.usage)) {
                     held = ev.usage;
                     held_ev = ev;
@@ -1532,6 +1607,7 @@ void editor_run(void)
         /* Not while a key is held: the repeat is still typing. */
         if (!held && save_tick(false)) dirty = true;
         if (!held && export_tick(false)) dirty = true;
+        if (send_tick()) dirty = true;
 
         if (dirty) redraw();
     }

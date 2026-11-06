@@ -87,6 +87,11 @@ typedef enum {
     DOCLOG_SRC_SYMSPELL = 1,
 } doclog_src_t;
 
+/* 0038: the export's footer (0037) on its own, for an email's body:
+ * at most DOCLOG_FOOT_MAX bytes, NUL-terminated, into `f`. Its length. */
+#define DOCLOG_FOOT_MAX     (160)
+uint32_t doclog_footer(char *f, const char *author, int64_t now, bool now_ok, const char *build);
+
 /* 0035: an author's name, bytes, and how many one log can name. */
 #define DOCLOG_AUTHOR_MAX   (32)
 #define DOCLOG_AUTHORS_MAX  (32)

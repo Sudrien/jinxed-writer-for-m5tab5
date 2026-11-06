@@ -11,7 +11,8 @@
  *                  Edit opens mailform full-window, typed on the USB
  *                  keyboard or tapped; Forget clears it (tap twice);
  *                  Send test email (or Cmd+T) sends one through the
- *                  send task, its progress and result beside the button
+ *                  send task, its progress and result beside the button;
+ *                  Send notes now (or Cmd+Enter) sends today's text (0038)
  *   Attribution    the name the user's edits are credited to in the log
  *                  (0035), "user" until one is set; Change name, or
  *                  Cmd+N, opens a one-line field
@@ -41,6 +42,10 @@ bool settings_gear_hit(int x, int y);
 /* 0035: the name the user's edits are credited to, kept in NVS
  * (`jinxed`, `author`); NULL while it is the default, "user". */
 const char *settings_author(void);
+
+/* 0038: what Send notes now (and Cmd+Enter here) does -- the editor's
+ * send of today's text. False when the send could not start. */
+void settings_on_send(bool (*send)(void));
 
 /* The page, until it is closed. Leaves the screen for the caller to
  * redraw, and swallows the press that closed it. */

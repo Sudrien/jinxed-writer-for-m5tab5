@@ -155,7 +155,7 @@ Which mode the device runs in is chosen on the **settings page** (section 7) and
 | Save now (flush the log, then export) | Ctrl+S | Command+S | ✓ |
 | Find; next / previous | Ctrl+F; F3 / Shift+F3 | Command+F; Command+G / Command+Shift+G, or F3 / Shift+F3 | planned |
 | Go to line | Ctrl+G | Command+L | planned |
-| Send now (file mode's manual send) | Ctrl+Enter | Command+Enter | planned |
+| Send now (file mode's manual send; daily mode's too, 0038) | Ctrl+Enter | Command+Enter | ✓ |
 | **F keys** (0029: never the only way to something, but for these three, which have nowhere else to be) | | | |
 | These keys: this keyboard's column of this table, built rows only; any key or a tap closes | F1 | F1 | ✓ |
 | Bare page: no word count and no gear, the status line's row given to the text -- it comes back while there is no keyboard, caps, no card or not saved; until power-off | F11 | F11 | ✓ |
@@ -163,7 +163,7 @@ Which mode the device runs in is chosen on the **settings page** (section 7) and
 
 Held keys repeat. A chord with Ctrl, Command, Alt or the Windows key types nothing.
 
-*On the settings page, today:* Up/Down scroll; PageUp/PageDown scroll a screen; Home/End jump to the top and bottom, and so do Ctrl+Home/End on a Windows keyboard and Command+Up/Down on an Apple one; Enter opens the email form; Cmd+T sends a test email; Cmd+N changes the attribution name; Cmd+R turns the screen a quarter clockwise; Esc or Cmd+, closes the page. In the email form: Tab / Shift+Tab or Up / Down move between fields, Enter saves, Esc cancels.
+*On the settings page, today:* Up/Down scroll; PageUp/PageDown scroll a screen; Home/End jump to the top and bottom, and so do Ctrl+Home/End on a Windows keyboard and Command+Up/Down on an Apple one; Enter opens the email form; Cmd+T sends a test email; Cmd+Enter sends today's notes; Cmd+N changes the attribution name; Cmd+R turns the screen a quarter clockwise; Esc or Cmd+, closes the page. In the email form: Tab / Shift+Tab or Up / Down move between fields, Enter saves, Esc cancels.
 
 *In the spelling view, today:* 1-9 change the word to that suggestion; Up/Down choose one and Enter takes it; **E** opens a field with the word in it, to type it as it should be when no suggestion is (letters, Backspace, Delete, Left/Right, Home/End, Caps Lock; Enter changes the word to what is typed, Esc goes back to the suggestions) -- a word typed is the user's change in the log, not the checker's; Tab, Space or Right skip the word; I ignores it everywhere until power-off; A adds it to the user's words; Esc or F7 close, and Command+; on an Apple keyboard. When nothing is left, any key closes.
 
@@ -183,6 +183,7 @@ Held keys repeat. A chord with Ctrl, Command, Alt or the Windows key types nothi
 - SMTP over TLS, linked directly (mbedtls / esp-tls). Send only. Wi-Fi is up only for the duration of a send (or a dictionary download, section 5), then dropped.
 - **What is sent (daily mode):** the net difference between the text at the previous checkpoint and the text now, so text typed and then deleted within the interval is never sent. Plus a full copy on manual send. No changes since the last checkpoint means no attempt, no Wi-Fi, and no message.
 - **File mode:** manual send only (a hotkey or button), attaching the current export. Optionally attach the log.
+- **Manual send, built** (0038): Cmd+Enter in the editor, or Send notes now (or Cmd+Enter) on the settings page, flushes the log, exports, and sends today's whole text with the export's footer through the send task, to the account on the settings page. Subject `Jinxed Writer: <file>, seq 1-S`, or `not yet saved` when it could not be flushed. Its progress and result are in the status line, cleared 10 s after it ends or at the next key. No checkpoint is written yet: the background send will need it, and it is a new record type, which firmware before it would stop at.
 - Put the sequence range in the subject line so a duplicate after a mid-send reset is obvious. Write the checkpoint only after the send succeeds. If power fails in between, the next attempt duplicates the send, which is acceptable; a missed send is not.
 - **Credentials** (host, port, user, app password, recipient) are stored in **encrypted NVS, the same way the saved Wi-Fi networks are**. Follow how `feckless_network_handler` does it; do not invent a second scheme. Never store credentials on the SD card.
 

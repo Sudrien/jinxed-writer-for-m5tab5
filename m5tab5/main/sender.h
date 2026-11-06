@@ -37,6 +37,15 @@ esp_err_t sender_init(void);
 /* Start a test send. False if one is already running. */
 bool sender_test(void);
 
+/*
+ * 0038: start sending `text` (len bytes, no NUL needed), then `foot`,
+ * as one message: subject "Jinxed Writer: <name>" and `range`. Both are
+ * copied before this returns, so the caller's text may change at once.
+ * False if a send or a fetch is running, or there is no room for it.
+ */
+bool sender_send_doc(const char *name, const char *range, const char *text, uint32_t len,
+                     const char *foot);
+
 /* Start fetching the spelling dictionary from SPELL_DICT_URL to
  * SPELL_DIR/SPELL_DICT. False if a send or a fetch is already running.
  * Progress and the outcome are the status line; sender_fetched() says

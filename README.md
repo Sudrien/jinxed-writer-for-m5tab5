@@ -40,6 +40,9 @@ Not ready for human consumption yet. `writerdeck_spec.md` is the design;
   and Ctrl+-, or Command, while writing), all kept across power-offs; and the library
   versions and licences.
 
+- **Email now:** Ctrl+Enter (Command+Enter), or Send notes now in
+  Settings, mails today's text to the account set up there.
+
 ## Not yet
 
 Scheduled and background email sends, sleep with the RTC alarm, idle dim
