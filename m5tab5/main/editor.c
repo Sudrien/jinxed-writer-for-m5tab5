@@ -40,6 +40,7 @@
 #include <time.h>
 
 #include "esp_check.h"
+#include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -526,7 +527,11 @@ static bool export_tick(bool force)
     if (!s_export_due || s_pending || !doclog_is_open()) return false;
     if (!force && xTaskGetTickCount() - s_last_edit < pdMS_TO_TICKS(EXPORT_PAUSE_MS)) return false;
     const bool was = s_conflict;
-    const esp_err_t e = doclog_export(s_base, s_base_len);
+    int64_t t;
+    const bool t_ok = rtc_now(&t);
+    const esp_app_desc_t *d = esp_app_get_description();     /* 0037: the footer */
+    const esp_err_t e = doclog_export(s_base, s_base_len, settings_author(), t, t_ok,
+                                      d ? d->version : NULL);
     if (e == ESP_OK) {
         s_export_due = false;
         s_conflict = false;

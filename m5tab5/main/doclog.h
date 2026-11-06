@@ -127,8 +127,16 @@ esp_err_t doclog_append(const char *old, uint32_t old_len,
  * instead: ESP_ERR_INVALID_STATE. An import records its file as
  * exported, so it is not a conflict with itself; an export already on
  * the card beside a log with no sidecar (an import before 0036) is.
+ *
+ * 0037: the export ends in a footer the log does not hold -- a rule,
+ * `author: <name>` when `author` is set, `exported: YYYY-MM-DD HH:MM`
+ * from `now` when `now_ok`, and `Jinxed Writer <build>`. An import drops
+ * a footer of this shape. The sidecar also keeps the text's own hash, so
+ * an export with the text unchanged writes nothing, though its time
+ * would differ.
  */
-esp_err_t doclog_export(const char *text, uint32_t len);
+esp_err_t doclog_export(const char *text, uint32_t len, const char *author,
+                        int64_t now, bool now_ok, const char *build);
 
 /* 0035: the id the open log credits `name` as: 0 for NULL or "", -1 if
  * it has not named it. */

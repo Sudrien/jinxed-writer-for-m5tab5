@@ -54,6 +54,27 @@ static void rnd_edit(void)
     }
 }
 
+/* 0037: an export with no author and no time, and the file it makes. */
+static int ex(const char *t) { return doclog_export(t, (uint32_t)strlen(t), NULL, 0, false, "T"); }
+static const char *full(const char *t)
+{
+    static char b[4][256];
+    static int i;
+    char *r = b[i++ % 4];
+    snprintf(r, 256, "%s\n\n---\n\nJinxed Writer T\n", t);
+    return r;
+}
+static void put_file(const char *p, const char *t) { FILE *f = fopen(p, "wb"); fputs(t, f); fclose(f); }
+static int file_is(const char *p, const char *t)
+{
+    static char b[512];
+    FILE *f = fopen(p, "rb");
+    if (!f) return 0;
+    const size_t n = fread(b, 1, sizeof b, f);
+    fclose(f);
+    return n == strlen(t) && !memcmp(b, t, n);
+}
+
 /* 0036: the sidecar, written as doclog.c writes it, to fake a cut. */
 static uint32_t crc(const char *p, size_t n)
 {
@@ -252,7 +273,7 @@ int main(void)
     wipe();
     assert(doclog_verify() == ESP_ERR_NOT_FOUND);
 
-    /* 0036: export. */
+    /* 0036, 0037: export, with its footer. */
     {
         char CONF[256], SIDE[256], TMP[sizeof EXP + 4];
         snprintf(CONF, sizeof CONF, "%s/2026-11-02.conflict.md", DOCLOG_DIR);
@@ -260,48 +281,74 @@ int main(void)
         snprintf(TMP, sizeof TMP, "%s.tmp", EXP);
         wipe(); unlink(CONF); unlink(SIDE);
         assert(doclog_open(NAME, got, &len, 0, false) == 0 && len == 0);
-        /* First export: the file appears, no temp left. */
+        /* First export: the file appears, the footer after it, no temp. */
         assert(doclog_append("", 0, "one", 3, 1, true, DOCLOG_SRC_USER, NULL) == 0);
-        assert(doclog_export("one", 3) == 0);
-        assert(fsize(EXP) == 3 && fsize(TMP) < 0 && fsize(SIDE) == 16);
+        assert(ex("one") == 0);
+        assert(file_is(EXP, full("one")) && fsize(TMP) < 0 && fsize(SIDE) == 20);
         /* Again, over its own file. */
-        assert(doclog_export("one two", 7) == 0 && fsize(EXP) == 7);
+        assert(ex("one two") == 0 && file_is(EXP, full("one two")));
         /* Edited outside: left alone, ours goes beside it, every time. */
-        f = fopen(EXP, "wb"); fputs("theirs", f); fclose(f);
-        assert(doclog_export("one two three", 13) == ESP_ERR_INVALID_STATE);
-        assert(fsize(EXP) == 6 && fsize(CONF) == 13);
-        assert(doclog_export("one two three!", 14) == ESP_ERR_INVALID_STATE && fsize(EXP) == 6);
+        put_file(EXP, "theirs");
+        assert(ex("one two three") == ESP_ERR_INVALID_STATE);
+        assert(file_is(EXP, "theirs") && file_is(CONF, full("one two three")));
+        assert(ex("one two three!") == ESP_ERR_INVALID_STATE && file_is(EXP, "theirs"));
         /* They move theirs away: ours is written normally again. */
         unlink(EXP);
-        assert(doclog_export("four", 4) == 0 && fsize(EXP) == 4);
-        /* A power cut mid-export: the sidecar says last "four", pending
-         * "five". Either one on the card is ours. */
-        side_put(SIDE, crc("four", 4), crc("five", 4));
-        f = fopen(EXP, "wb"); fputs("five", f); fclose(f);  /* renamed in, not recorded */
-        assert(doclog_export("six", 3) == 0 && fsize(EXP) == 3);
-        side_put(SIDE, crc("four", 4), crc("five", 4));
-        f = fopen(EXP, "wb"); fputs("four", f); fclose(f);  /* cut before the rename */
-        assert(doclog_export("six", 3) == 0 && fsize(EXP) == 3);
-        side_put(SIDE, crc("four", 4), crc("five", 4));
-        f = fopen(EXP, "wb"); fputs("fiv", f); fclose(f);   /* neither: theirs */
-        assert(doclog_export("six", 3) == ESP_ERR_INVALID_STATE && fsize(EXP) == 3);
+        assert(ex("four") == 0 && file_is(EXP, full("four")));
+        /* A power cut mid-export, a 0036 sidecar saying last "four",
+         * pending "five". Either one on the card is ours. */
+        side_put(SIDE, crc(full("four"), strlen(full("four"))), crc(full("five"), strlen(full("five"))));
+        put_file(EXP, full("five"));            /* renamed in, not recorded */
+        assert(ex("six") == 0 && file_is(EXP, full("six")));
+        side_put(SIDE, crc(full("four"), strlen(full("four"))), crc(full("five"), strlen(full("five"))));
+        put_file(EXP, full("four"));            /* cut before the rename */
+        assert(ex("six") == 0 && file_is(EXP, full("six")));
+        side_put(SIDE, crc(full("four"), strlen(full("four"))), crc(full("five"), strlen(full("five"))));
+        put_file(EXP, "fiv");                   /* neither: theirs */
+        assert(ex("six") == ESP_ERR_INVALID_STATE && file_is(EXP, "fiv"));
         unlink(CONF);
         /* A missing or torn sidecar beside an existing file: theirs. */
-        unlink(CONF); unlink(EXP);
-        assert(doclog_export("seven", 5) == 0);
+        unlink(EXP);
+        assert(ex("seven") == 0);
         assert(truncate(SIDE, 7) == 0);
-        assert(doclog_export("eight", 5) == ESP_ERR_INVALID_STATE);
-        /* ...unless the file already holds the text: then it is just
-         * recorded. */
-        assert(doclog_export("seven", 5) == 0 && fsize(SIDE) == 16);
-        assert(doclog_export("nine", 4) == 0 && fsize(EXP) == 4);
+        assert(ex("eight") == ESP_ERR_INVALID_STATE);
+        /* ...unless the file already holds it: then it is just recorded. */
+        assert(ex("seven") == 0 && fsize(SIDE) == 20);
+        assert(ex("nine") == 0 && file_is(EXP, full("nine")));
+        unlink(CONF);
 
-        /* An import is its own export: typing on it is no conflict. */
-        wipe(); unlink(CONF); unlink(SIDE);
-        f = fopen(EXP, "wb"); fputs("imported\n", f); fclose(f);
-        doclog_close();
-        assert(doclog_open(NAME, got, &len, 0, false) == 0 && len == 9);
-        assert(doclog_export("imported\nmore", 13) == 0 && fsize(EXP) == 13 && fsize(CONF) < 0);
+        /* 0037: the author when set, and the time when trusted. */
+        assert(doclog_export("ten", 3, "Ada", 1762437780, true, "v0.0.37") == 0);   /* 2025-11-06 14:03 UTC */
+        assert(file_is(EXP, "ten\n\n---\n\nauthor: Ada  \nexported: 2025-11-06 14:03  \nJinxed Writer v0.0.37\n"));
+        /* The same text later: not rewritten for the time alone. */
+        assert(doclog_export("ten", 3, "Ada", 1762437780 + 3600, true, "v0.0.37") == 0);
+        assert(file_is(EXP, "ten\n\n---\n\nauthor: Ada  \nexported: 2025-11-06 14:03  \nJinxed Writer v0.0.37\n"));
+        /* A changed text is. */
+        assert(doclog_export("ten!", 4, "Ada", 1762437780 + 3600, true, "v0.0.37") == 0);
+        assert(file_is(EXP, "ten!\n\n---\n\nauthor: Ada  \nexported: 2025-11-06 15:03  \nJinxed Writer v0.0.37\n"));
+
+        /* An import drops a footer of ours, and only ours: the text comes
+         * back without it, and typing on it is no conflict. */
+        static const struct { const char *file; const char *text; } imp[] = {
+            { "imported\n\n\n---\n\nauthor: Ada  \nJinxed Writer v1\n", "imported\n" },
+            { "\n\n---\n\nexported: 2025-11-06 14:03  \nJinxed Writer v1\n", "" },
+            { "a\n\n---\n\nJinxed Writer v1\n", "a" },
+            { "a\n\n---\n\nauthor: Ada\nJinxed Writer v1\n", NULL },     /* no hard break */
+            { "a\n\n---\n\nJinxed Writer v1", NULL },                     /* no last newline */
+            { "a\n\n---\n\nnotes: x  \nJinxed Writer v1\n", NULL },     /* not our key */
+            { "imported\n", NULL },
+        };
+        for (size_t i = 0; i < sizeof imp / sizeof imp[0]; i++) {
+            wipe(); unlink(CONF); unlink(SIDE);
+            put_file(EXP, imp[i].file);
+            doclog_close();
+            const char *want = imp[i].text ? imp[i].text : imp[i].file;
+            assert(doclog_open(NAME, got, &len, 0, false) == 0);
+            assert(len == strlen(want) && !memcmp(got, want, len));
+            char more[128];
+            snprintf(more, sizeof more, "%smore", want);
+            assert(ex(more) == 0 && file_is(EXP, full(more)) && fsize(CONF) < 0);
+        }
         unlink(CONF); unlink(SIDE);
         puts("export: ok");
     }

@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #ifdef DOCLOG_HOST
@@ -490,8 +491,9 @@ static uint8_t hl_from_name(const char *name)
     return 0;
 }
 
-static bool side_write(uint32_t last, uint32_t pending);
+static bool side_write(uint32_t last, uint32_t pending, uint32_t body);
 static bool file_hash(const char *path, uint32_t *h);
+static uint32_t footer_strip(const char *t, uint32_t n);
 
 /* A document with no log: import the export if there is one (spec 4,
  * "importing existing files"), as one insert stamped with its mtime. */
@@ -503,12 +505,15 @@ static esp_err_t create_log(const char *name, char *text, uint32_t *len,
     uint32_t n = 0;
     int64_t when = now;
     bool when_ok = now_ok;
+    bool imported = false;
     struct stat st;
     if (stat(exp, &st) == 0) {
         FILE *f = fopen(exp, "rb");
         if (f) {
             n = (uint32_t)fread(text, 1, s_cap, f);
             fclose(f);
+            n = footer_strip(text, n);  /* 0037: ours, not the text */
+            imported = true;
             when = (int64_t)st.st_mtime;
             when_ok = true;
             ESP_LOGI(TAG, "importing %s, %lu bytes", exp, (unsigned long)n);
@@ -530,10 +535,11 @@ static esp_err_t create_log(const char *name, char *text, uint32_t *len,
         const uint32_t p = cs_make(s_rec + REC_HDR, "", 0, text, n);
         if (append_cs(p, when, when_ok, DOCLOG_SRC_USER, 0) != ESP_OK) { s_open = false; return ESP_FAIL; }
         *len = n;
-        /* 0036: the file is ours now, as the log's first text. */
-        uint32_t h;
-        if (file_hash(exp, &h)) side_write(h, h);
     }
+    /* 0036: the file is ours now, as the log's first text -- even when
+     * that text is empty (0037: a file of nothing but a footer). */
+    uint32_t h;
+    if (imported && file_hash(exp, &h)) side_write(h, h, crc32c(0, (const uint8_t *)text, n));
     return ESP_OK;
 }
 
@@ -577,7 +583,74 @@ void doclog_close(void)   { s_open = false; }
 
 /* ---- export (0036) ---------------------------------------------------- */
 
-#define SIDE_MAGIC      (0x3158474Au)   /* "JGX1" */
+#define SIDE_MAGIC      (0x3158474Au)   /* "JGX1", 0036: 16 bytes */
+#define SIDE_MAGIC2     (0x3258474Au)   /* "JGX2", 0037: 20, with the body's hash */
+#define NO_BODY         (0xFFFFFFFFu)   /* a JGX1 sidecar: not known */
+
+/* ---- the footer (0037) --------------------------------------------------
+ *
+ * After the text, in the export only -- never in the log:
+ *
+ *   <text>\n\n---\n\nauthor: <name>  \nexported: YYYY-MM-DD HH:MM  \nJinxed Writer <version>\n
+ *
+ * author only when a name is set, exported only when the RTC's time is
+ * trusted. The rule makes it a footer, and the two trailing spaces put
+ * each line on its own in rendered markdown. An import that ends in one
+ * drops it, so footers never pile up in the text.
+ */
+#define FOOT_SEP        "\n\n---\n\n"
+#define FOOT_BRAND      "Jinxed Writer "
+#define FOOT_MAX        (160)
+
+static bool foot_line(const char *a, const char *b, const char *key)
+{
+    const size_t k = strlen(key);
+    if ((size_t)(b - a) < k + 3 || memcmp(a, key, k) != 0 || b[-1] != ' ' || b[-2] != ' ') return false;
+    for (const char *p = a; p < b; p++) if (*p < ' ' || *p > '~') return false;
+    return true;
+}
+
+/* The text without a footer of ours at its end; n when there is none. */
+static uint32_t footer_strip(const char *t, uint32_t n)
+{
+    const uint32_t sl = (uint32_t)strlen(FOOT_SEP);
+    if (n < sl + strlen(FOOT_BRAND) + 1 || t[n - 1] != '\n') return n;
+    const uint32_t lo = n > FOOT_MAX + sl ? n - FOOT_MAX - sl : 0;
+    for (uint32_t s = n - sl + 1; s-- > lo; ) {
+        if (memcmp(t + s, FOOT_SEP, sl) != 0) continue;
+        const char *p = t + s + sl, *end = t + n;
+        bool ok = true;
+        while (ok && p < end) {
+            const char *e = memchr(p, '\n', (size_t)(end - p));
+            if (!e) { ok = false; break; }
+            if (e + 1 == end) {         /* the last line: the brand */
+                ok = (size_t)(e - p) > strlen(FOOT_BRAND) && !memcmp(p, FOOT_BRAND, strlen(FOOT_BRAND));
+                for (const char *q = p; ok && q < e; q++) ok = *q >= ' ' && *q <= '~';
+            } else {
+                ok = foot_line(p, e, "author: ") || foot_line(p, e, "exported: ");
+            }
+            p = e + 1;
+        }
+        return ok ? s : n;
+    }
+    return n;
+}
+
+static uint32_t footer_make(char *f, const char *author, int64_t now, bool now_ok, const char *build)
+{
+    int k = snprintf(f, FOOT_MAX, "%s", FOOT_SEP);
+    if (author && author[0]) k += snprintf(f + k, FOOT_MAX - (size_t)k, "author: %.40s  \n", author);
+    if (now_ok) {
+        const time_t tt = (time_t)now;
+        struct tm tm;
+        gmtime_r(&tt, &tm);
+        k += snprintf(f + k, FOOT_MAX - (size_t)k, "exported: %04d-%02d-%02d %02d:%02d  \n",
+                      (tm.tm_year + 1900) % 10000, (tm.tm_mon + 1) % 100, tm.tm_mday % 100,
+                      tm.tm_hour % 100, tm.tm_min % 100);
+    }
+    k += snprintf(f + k, FOOT_MAX - (size_t)k, "%s%.40s\n", FOOT_BRAND, build && build[0] ? build : "?");
+    return k < FOOT_MAX ? (uint32_t)k : FOOT_MAX - 1;
+}
 
 /* CRC-32C of a whole file, read to its end: a file the user supplies
  * may be any size (CLAUDE.md), and nothing here needs its length. */
@@ -598,13 +671,14 @@ static bool file_hash(const char *path, uint32_t *h)
  * of one being put in place now, and a CRC of the three. Either hash
  * found on the card is ours, so a power cut between writing the new
  * file and recording it is not taken for someone else's edit. */
-static bool side_write(uint32_t last, uint32_t pending)
+static bool side_write(uint32_t last, uint32_t pending, uint32_t body)
 {
-    uint8_t b[16];
-    put32(b, SIDE_MAGIC);
+    uint8_t b[20];
+    put32(b, SIDE_MAGIC2);
     put32(b + 4, last);
     put32(b + 8, pending);
-    put32(b + 12, crc32c(0, b, 12));
+    put32(b + 12, body);
+    put32(b + 16, crc32c(0, b, 16));
     FILE *f = fopen(s_side, "wb");
     if (!f) return false;
     const bool ok = fwrite(b, 1, sizeof b, f) == sizeof b;
@@ -613,50 +687,65 @@ static bool side_write(uint32_t last, uint32_t pending)
     return done;
 }
 
-static bool side_read(uint32_t *last, uint32_t *pending)
+/* A JGX1 sidecar (0036) reads with its body unknown. */
+static bool side_read(uint32_t *last, uint32_t *pending, uint32_t *body)
 {
-    uint8_t b[16];
+    uint8_t b[20];
     FILE *f = fopen(s_side, "rb");
     if (!f) return false;
-    const bool ok = fread(b, 1, sizeof b, f) == sizeof b;
+    const size_t n = fread(b, 1, sizeof b, f);
     fclose(f);
-    if (!ok || get32(b) != SIDE_MAGIC || get32(b + 12) != crc32c(0, b, 12)) return false;
+    if (n == 16 && get32(b) == SIDE_MAGIC && get32(b + 12) == crc32c(0, b, 12)) {
+        *body = NO_BODY;
+    } else if (n == 20 && get32(b) == SIDE_MAGIC2 && get32(b + 16) == crc32c(0, b, 16)) {
+        *body = get32(b + 12);
+    } else {
+        return false;
+    }
     *last = get32(b + 4);
     *pending = get32(b + 8);
     return true;
 }
 
-/* Write `text` to `path`, synced. */
-static bool write_whole(const char *path, const char *text, uint32_t len)
+/* Write `text` and then `foot` to `path`, synced. */
+static bool write_whole(const char *path, const char *text, uint32_t len, const char *foot, uint32_t flen)
 {
     FILE *f = fopen(path, "wb");
     if (!f) return false;
-    const bool ok = fwrite(text, 1, len, f) == len;
+    bool ok = fwrite(text, 1, len, f) == len;
+    ok = ok && fwrite(foot, 1, flen, f) == flen;
     return sync_close(f) && ok;
 }
 
-esp_err_t doclog_export(const char *text, uint32_t len)
+esp_err_t doclog_export(const char *text, uint32_t len, const char *author,
+                        int64_t now, bool now_ok, const char *build)
 {
     if (!s_open) return ESP_ERR_INVALID_STATE;
     if (!VOL_PRESENT()) return ESP_ERR_INVALID_STATE;
     VOL_HOLD();
     esp_err_t err = ESP_OK;
-    const uint32_t neu = crc32c(0, (const uint8_t *)text, len);
-    uint32_t have = 0, last = 0, pending = 0;
+    static char foot[FOOT_MAX];
+    const uint32_t flen = footer_make(foot, author, now, now_ok, build);
+    const uint32_t body = crc32c(0, (const uint8_t *)text, len);
+    const uint32_t neu = crc32c(body, (const uint8_t *)foot, flen);
+    uint32_t have = 0, last = 0, pending = 0, side_body = NO_BODY;
     struct stat st;
     const bool exists = stat(s_exp, &st) == 0;
-    const bool side = side_read(&last, &pending);
+    const bool side = side_read(&last, &pending, &side_body);
     if (exists && !file_hash(s_exp, &have)) {
         err = ESP_FAIL;
     } else if (exists && have == neu) {
         /* Already this text: only the record may be behind. */
-        if (!side || last != neu || pending != neu) side_write(neu, neu);
+        if (!side || last != neu || pending != neu || side_body != body) side_write(neu, neu, body);
+    } else if (exists && side && have == last && side_body == body) {
+        /* 0037: ours, and the text is what it holds: only the footer's
+         * time would change. Not worth a write. */
     } else if (exists && (!side || (have != last && have != pending))) {
         /* Not what we last wrote: someone else's. Leave it; put ours
          * beside it (spec 4, "external edits"). */
         ESP_LOGW(TAG, "%s changed outside; writing %s", s_exp, s_conf);
-        err = write_whole(s_conf, text, len) ? ESP_ERR_INVALID_STATE : ESP_FAIL;
-    } else if (!write_whole(s_tmp, text, len) || !side_write(side ? last : neu, neu)) {
+        err = write_whole(s_conf, text, len, foot, flen) ? ESP_ERR_INVALID_STATE : ESP_FAIL;
+    } else if (!write_whole(s_tmp, text, len, foot, flen) || !side_write(side ? last : neu, neu, NO_BODY)) {
         unlink(s_tmp);
         err = ESP_FAIL;
     } else {
@@ -667,7 +756,7 @@ esp_err_t doclog_export(const char *text, uint32_t len)
             ESP_LOGW(TAG, "rename %s: errno %d", s_tmp, errno);
             err = ESP_FAIL;
         } else {
-            side_write(neu, neu);
+            side_write(neu, neu, body);
         }
     }
     VOL_RELEASE();
