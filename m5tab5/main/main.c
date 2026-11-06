@@ -48,7 +48,7 @@ void app_main(void)
     /* Touch after the panel (TP_RST rides on its reset write), turned
      * with the picture. Not fatal: the keyboard does everything. */
     if (touch_init(tab5io_bus(), LCD_H_RES, LCD_V_RES) == ESP_OK) {
-        touch_set_rotation(DISPLAY_ROTATION);
+        touch_set_rotation(display_rotation());
     } else {
         ESP_LOGW(TAG, "no touch panel");
     }

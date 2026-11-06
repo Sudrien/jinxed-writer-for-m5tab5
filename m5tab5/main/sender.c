@@ -247,7 +247,7 @@ static void fetch_dict(void)
         s_fetched = true;
         set_line("Dictionary downloaded.");
     } else if (st == FECKLESS_FETCH_PAUSED) {
-        set_line("Dictionary download paused after ten minutes; D carries on.");
+        set_line("Dictionary paused at ten minutes; D carries on.");
     } else {
         char line[sizeof s_line];
         snprintf(line, sizeof line, "Dictionary not downloaded: %s.", why[0] ? why : "it failed");

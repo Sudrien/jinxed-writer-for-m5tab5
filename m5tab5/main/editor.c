@@ -478,8 +478,16 @@ static bool repeats(uint8_t usage)
 /* Lines of text shown above the word being checked. */
 #define SPELL_ABOVE     (1)
 #define SPELL_SCALE     (EDITOR_SCALE)
-#define SPELL_LEGEND    "1-9 Enter: change   E: type   Tab: skip   I: ignore all   A: add   Esc: done"
-#define SPELL_TYPE_LEGEND "Enter: change to this   Esc: back to the suggestions"
+/* The keys, in pieces a line may break between (0019): one line wide,
+ * two or three on end. */
+static const char *const k_legend[] = {
+    "1-9 Enter: change", "E: type", "Tab: skip", "I: ignore all", "A: add", "Esc: done",
+};
+static const char *const k_type_legend[] = { "Enter: change to this", "Esc: back to the suggestions" };
+static const char *const k_dict_hint[] = { "D: download it (15 MB, over Wi-Fi)", "Any other key: close" };
+#define LEGEND_N(a)     ((int)(sizeof(a) / sizeof((a)[0])))
+#define LEGEND_GAP      "   "
+#define LEGEND_LH       (GFX_GLYPH_H(2) + 8)
 /* What a word may be typed as: a few words, if it was one run together. */
 #define SPELL_TYPE_MAX  (64)
 
@@ -498,13 +506,47 @@ typedef struct {
     int          tlen, tcur;
 } spell_view_t;
 
-/* Suggestions that fit the pane. */
+/* Lay pieces out in lines no wider than the screen's margins allow;
+ * draw them from `y` down when `draw`. The number of lines. */
+static int legend(const char *const *part, int n, int y, bool draw)
+{
+    const int room = gfx_w() - 2 * MARGIN_X;
+    const int gw = GFX_GLYPH_W(2);
+    char line[160];
+    int lines = 0;
+    for (int i = 0; i < n; ) {
+        size_t len = 0;
+        line[0] = '\0';
+        while (i < n) {
+            const size_t add = strlen(part[i]) + (len ? strlen(LEGEND_GAP) : 0);
+            if (len && (int)(len + add) * gw > room) break;
+            if (len + add >= sizeof(line)) break;
+            if (len) strcat(line, LEGEND_GAP);
+            strcat(line, part[i++]);
+            len = strlen(line);
+        }
+        if (draw) gfx_draw_text(MARGIN_X, y + lines * LEGEND_LH, line, 2, room, COL_DIM);
+        lines++;
+    }
+    return lines;
+}
+
+/* The same, at the foot of the pane. */
+static void legend_foot(const char *const *part, int n)
+{
+    const int lines = legend(part, n, 0, false);
+    legend(part, n, gfx_h() - 16 - lines * LEGEND_LH + 8, true);
+}
+
+/* Suggestions that fit the pane, above however many lines the legend
+ * takes at this width. */
 static int spell_fit(void)
 {
     const int H = gfx_h();
     const int pane = MARGIN_Y + (s_rows / 2) * s_line_h + 8;
     const int row = GFX_GLYPH_H(SPELL_SCALE) + 3 * SPELL_SCALE;
-    int n = (H - pane - 24 - row - 16 - GFX_GLYPH_H(2) - 16) / row;
+    const int foot = legend(k_legend, LEGEND_N(k_legend), 0, false) * LEGEND_LH;
+    int n = (H - pane - 24 - row - 16 - foot - 16) / row;
     if (n > SPELL_SUGG_MAX) n = SPELL_SUGG_MAX;
     return n < 1 ? 1 : n;
 }
@@ -532,13 +574,30 @@ static void spell_draw(const spell_view_t *v)
     int y = pane + 24;
     if (!word) {
         gfx_draw_text(MARGIN_X, y, v->msg, SPELL_SCALE, W - MARGIN_X, COL_TEXT);
+        int hy = y + row;
         if (v->no_dict && v->status[0]) {
-            gfx_draw_text(MARGIN_X, y + row, v->status, 2, W - MARGIN_X, COL_TEXT);
+            /* The send task's line, in up to two lines: a reason can be
+             * long, and the screen may be on end (0019). */
+            const char *st = v->status;
+            for (int l = 0; l < 2 && *st; l++) {
+                const char *next = st;
+                size_t n = gfx_wrap_line(st, 2, W - 2 * MARGIN_X, &next);
+                char line[sizeof(v->status)];
+                if (l == 1 || n >= sizeof(line)) n = strlen(st) < sizeof(line) ? strlen(st) : sizeof(line) - 1;
+                memcpy(line, st, n);
+                line[n] = '\0';
+                gfx_draw_text(MARGIN_X, hy, line, 2, W - 2 * MARGIN_X, COL_TEXT);
+                hy += LEGEND_LH;
+                if (next == st) break;
+                st = next;
+            }
         }
-        const char *hint = !v->no_dict ? "Any key to close." :
-                           v->fetching ? "Any key to close; the download goes on." :
-                           "D: download it (15 MB, over Wi-Fi).   Any other key: close.";
-        gfx_draw_text(MARGIN_X, y + 2 * row, hint, 2, W - MARGIN_X, COL_DIM);
+        hy += row - LEGEND_LH;
+        static const char *const close1[] = { "Any key to close." };
+        static const char *const closef[] = { "Any key to close;", "the download goes on." };
+        if (!v->no_dict)     legend(close1, 1, hy, true);
+        else if (v->fetching) legend(closef, 2, hy, true);
+        else                 legend(k_dict_hint, LEGEND_N(k_dict_hint), hy, true);
         gfx_blit(0, H);
         return;
     }
@@ -559,10 +618,15 @@ static void spell_draw(const spell_view_t *v)
         const int fy = y + GFX_GLYPH_H(2) + 12;
         gfx_fill_rect(MARGIN_X - 12, fy - 2 * SPELL_SCALE, W - 2 * MARGIN_X + 24,
                       GFX_GLYPH_H(SPELL_SCALE) + 4 * SPELL_SCALE, COL_FIELD);
-        gfx_draw_text(MARGIN_X, fy, v->typed, SPELL_SCALE, W - MARGIN_X, COL_TEXT);
-        gfx_fill_rect(MARGIN_X + v->tcur * gw, fy - SPELL_SCALE, 2 * SPELL_SCALE,
+        /* Wider than the field: the part around the cursor (0019). */
+        const int fit = (W - 2 * MARGIN_X) / gw - 1;
+        const int from = v->tcur > fit ? v->tcur - fit : 0;
+        char shown[SPELL_TYPE_MAX + 1];
+        snprintf(shown, sizeof(shown), "%.*s", fit + 1, v->typed + from);
+        gfx_draw_text(MARGIN_X, fy, shown, SPELL_SCALE, W - 2 * MARGIN_X, COL_TEXT);
+        gfx_fill_rect(MARGIN_X + (v->tcur - from) * gw, fy - SPELL_SCALE, 2 * SPELL_SCALE,
                       GFX_GLYPH_H(SPELL_SCALE) + 2 * SPELL_SCALE, COL_CURSOR);
-        gfx_draw_text(MARGIN_X, H - 16 - GFX_GLYPH_H(2), SPELL_TYPE_LEGEND, 2, W - MARGIN_X, COL_DIM);
+        legend_foot(k_type_legend, LEGEND_N(k_type_legend));
         gfx_blit(0, H);
         return;
     }
@@ -579,7 +643,7 @@ static void spell_draw(const spell_view_t *v)
         snprintf(line, sizeof(line), "%d  %s", i + 1, v->sugg[i]);
         gfx_draw_text(MARGIN_X, yy, line, SPELL_SCALE, W - MARGIN_X, COL_TEXT);
     }
-    gfx_draw_text(MARGIN_X, H - 16 - GFX_GLYPH_H(2), SPELL_LEGEND, 2, W - MARGIN_X, COL_DIM);
+    legend_foot(k_legend, LEGEND_N(k_legend));
     gfx_blit(0, H);
 }
 
@@ -819,6 +883,20 @@ out:
 
 /* ---- the loop --------------------------------------------------------- */
 
+/* Columns and rows for the screen as it is now: at start, and after the
+ * settings page, which may have turned it (0019). Lines rewrap at the
+ * next redraw, which also scrolls the cursor back into view. */
+static void measure(void)
+{
+    const int W = gfx_w();
+    const int H = gfx_h();
+    s_cols   = (W - 2 * MARGIN_X) / GFX_GLYPH_W(EDITOR_SCALE);
+    s_line_h = GFX_GLYPH_H(EDITOR_SCALE) + 4 * EDITOR_SCALE;
+    s_status_y = H - MARGIN_Y / 2 - GFX_GLYPH_H(2);
+    s_rows   = (s_status_y - MARGIN_Y - 8) / s_line_h;
+    ESP_LOGI(TAG, "%d columns, %d rows, scale %d", s_cols, s_rows, EDITOR_SCALE);
+}
+
 esp_err_t editor_init(void)
 {
     s_text    = heap_caps_malloc(TEXT_MAX, MALLOC_CAP_SPIRAM);
@@ -828,16 +906,13 @@ esp_err_t editor_init(void)
     if (!s_text || !s_ls || !s_le || !s_base) return ESP_ERR_NO_MEM;
     ESP_RETURN_ON_ERROR(doclog_init(TEXT_MAX), TAG, "doclog");
 
-    const int W = gfx_w();
-    const int H = gfx_h();
-    s_cols   = (W - 2 * MARGIN_X) / GFX_GLYPH_W(EDITOR_SCALE);
-    s_line_h = GFX_GLYPH_H(EDITOR_SCALE) + 4 * EDITOR_SCALE;
-    s_status_y = H - MARGIN_Y / 2 - GFX_GLYPH_H(2);
-    s_rows   = (s_status_y - MARGIN_Y - 8) / s_line_h;
-    s_row_buf = heap_caps_malloc((size_t)s_cols + 2, MALLOC_CAP_DEFAULT);
+    /* A row is drawn from here: as wide as the wider way up, so turning
+     * the screen never reallocates it. */
+    const int wide = gfx_w() > gfx_h() ? gfx_w() : gfx_h();
+    s_row_buf = heap_caps_malloc((size_t)((wide - 2 * MARGIN_X) / GFX_GLYPH_W(EDITOR_SCALE)) + 2,
+                                 MALLOC_CAP_DEFAULT);
     if (!s_row_buf) return ESP_ERR_NO_MEM;
-
-    ESP_LOGI(TAG, "%d columns, %d rows, scale %d", s_cols, s_rows, EDITOR_SCALE);
+    measure();
     pick_name();
     attach();
     redraw();
@@ -900,6 +975,7 @@ void editor_run(void)
             held = 0;
             save_tick(true);            /* the card is current before we leave */
             settings_page();
+            measure();                  /* it may have turned the screen */
             touch_down = false;
             dirty = true;
         }

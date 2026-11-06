@@ -216,10 +216,20 @@ static bool email_form(void)
 
 /* ---- the page --------------------------------------------------------- */
 
+/* The four ways up, in the order the buttons are laid out: two rows of
+ * two, so they fit the narrow way too. */
+static const struct { int rot; const char *label; } k_rot[4] = {
+    { GFX_ROT_90,  "Landscape" },
+    { GFX_ROT_270, "Landscape, flipped" },
+    { GFX_ROT_0,   "Portrait" },
+    { GFX_ROT_180, "Portrait, flipped" },
+};
+
 /* Positions in content coordinates, from layout(). */
 typedef struct {
     int edit_y, forget_y;       /* buttons; forget_y < 0 when not shown */
     int test_y;                 /* the test button; < 0 when not shown */
+    int rot_y;                  /* the first row of the four angles */
     int libs_y;                 /* first library row */
     int total_h;
 } page_t;
@@ -243,7 +253,32 @@ static void load_mail(void)
     }
 }
 
-static int lib_lh(void) { return GFX_GLYPH_H(SCALE) + 10; }
+/* Narrow -- the screen on end (0019): a library is two lines, its name
+ * and then its checkout and licence, rather than three columns. */
+static bool narrow(void) { return gfx_w() < 1000; }
+static int lib_lh(void) { return (GFX_GLYPH_H(SCALE) + 10) * (narrow() ? 2 : 1); }
+
+/* `s` in up to `max_lines` lines of `max_w`, broken between words by
+ * gfx_wrap_line(); drawn from `y` when `draw`. The lines it took. */
+static int wrapped(int x, int y, const char *s, int max_w, int max_lines, uint16_t c, bool draw)
+{
+    int lines = 0;
+    while (*s && lines < max_lines) {
+        const char *next = s;
+        size_t n = gfx_wrap_line(s, SCALE, max_w, &next);
+        char line[200];
+        if (n >= sizeof(line)) n = sizeof(line) - 1;
+        memcpy(line, s, n);
+        line[n] = '\0';
+        /* The last line allowed takes the rest, cut with an ellipsis. */
+        if (lines == max_lines - 1 && *next) snprintf(line, sizeof(line), "%s", s);
+        if (draw) gfx_draw_text(x, y + lines * LINE_H, line, SCALE, max_w, c);
+        lines++;
+        if (next == s) break;
+        s = next;
+    }
+    return lines;
+}
 
 /*
  * Lay the page out from content y = 0 and, when `draw`, draw it shifted
@@ -301,13 +336,27 @@ static page_t layout(bool draw, int scroll)
         p.test_y = y;
         if (draw) button(PAD, off + y, bw, BTN_H, busy ? "Sending..." : "Send test email",
                          busy ? COL_GO : COL_BTN);
-        if (draw && st[0]) {
-            gfx_draw_text(PAD + bw + PAD / 2, off + y + (BTN_H - TEXT_H) / 2, st, SCALE,
-                          W - 2 * PAD - bw - PAD / 2, COL_DIM);
-        }
         y += BTN_H + 16;
+        /* Under the button, the page's width and two lines of it: a
+         * failure sentence is long, and the page may be on end (0019). */
+        if (st[0]) y += wrapped(PAD, off + y, st, W - 2 * PAD, 2, COL_DIM, draw) * LINE_H + 8;
     }
-    TXT(y, "Kept in NVS on this device, never on the card.", COL_DIM);
+    TXT(y, "Kept on this device, never on the card.", COL_DIM);
+    y += LINE_H + SECTION_GAP;
+
+    /* Display (0019) */
+    RULE(y - SECTION_GAP / 2);
+    TXT(y, "Display", COL_TEXT);
+    y += LINE_H + 8;
+    p.rot_y = y;
+    for (int i = 0; i < 4; i++) {
+        const int bx = PAD + (i % 2) * (bw + PAD / 2);
+        const int by = y + (i / 2) * (BTN_H + 16);
+        if (draw) button(bx, off + by, bw, BTN_H, k_rot[i].label,
+                         k_rot[i].rot == display_rotation() ? COL_GO : COL_BTN);
+    }
+    y += 2 * (BTN_H + 16);
+    TXT(y, "Turns at once, and is kept on this device.", COL_DIM);
     y += LINE_H + SECTION_GAP;
 
     /* Libraries */
@@ -315,14 +364,20 @@ static page_t layout(bool draw, int scroll)
     TXT(y, "Libraries", COL_TEXT);
     y += LINE_H + 8;
     p.libs_y = y;
-    const int cx1 = PAD, cx2 = W * 50 / 100, cx3 = W * 72 / 100;
     const int lh = lib_lh();
+    const bool nar = narrow();
+    /* Wide: three columns. Narrow: the name, then under it the checkout
+     * and the licence. */
+    const int cx1 = PAD;
+    const int cx2 = nar ? PAD + 24 : W * 45 / 100;
+    const int cx3 = nar ? W * 65 / 100 : W * 75 / 100;
+    const int row2 = nar ? GFX_GLYPH_H(SCALE) + 10 : 0;
     for (int i = 0; i < LIBVERSIONS_COUNT; i++, y += lh) {
         const int sy = off + y;
         if (!draw || sy + lh < HEAD_H || sy > gfx_h()) continue;
-        gfx_draw_text(cx1, sy, k_libversions[i].module, SCALE, cx2 - cx1 - 16, COL_TEXT);
-        gfx_draw_text(cx2, sy, k_libversions[i].checkout, SCALE, cx3 - cx2 - 16, COL_DIM);
-        gfx_draw_text(cx3, sy, k_libversions[i].licence, SCALE, W - PAD - cx3, COL_DIM);
+        gfx_draw_text(cx1, sy, k_libversions[i].module, SCALE, nar ? W - 2 * PAD : cx2 - cx1 - 16, COL_TEXT);
+        gfx_draw_text(cx2, sy + row2, k_libversions[i].checkout, SCALE, cx3 - cx2 - 16, COL_DIM);
+        gfx_draw_text(cx3, sy + row2, k_libversions[i].licence, SCALE, W - PAD - cx3, COL_DIM);
     }
     y += 32;
     p.total_h = y;
@@ -398,6 +453,13 @@ void settings_page(void)
             case KBD_T:         /* GUI+T: send a test (spec 5's GUI shortcuts) */
                 if (gui) sender_test();
                 break;
+            case KBD_R:         /* GUI+R: a quarter turn clockwise */
+                if (gui) {
+                    display_set_rotation((display_rotation() + 1) % 4);
+                    want = 0;
+                    redraw = true;
+                }
+                break;
             default: break;
             }
         } else if (in.kind == IN_DRAG) {
@@ -414,6 +476,16 @@ void settings_page(void)
                 } else if (in_rect(in.x, cy, PAD, p.edit_y, bw, BTN_H)) {
                     if (email_form()) ESP_LOGI(TAG, "email account saved");
                     load_mail();
+                } else if (cy >= p.rot_y && cy < p.rot_y + 2 * (BTN_H + 16)) {
+                    const int col = in.x >= PAD + bw + PAD / 2 ? 1 : 0;
+                    const int rowi = (cy - p.rot_y) / (BTN_H + 16);
+                    const int i = rowi * 2 + col;
+                    const int bx = PAD + col * (bw + PAD / 2);
+                    const int by = p.rot_y + rowi * (BTN_H + 16);
+                    if (in_rect(in.x, cy, bx, by, bw, BTN_H) && k_rot[i].rot != display_rotation()) {
+                        display_set_rotation(k_rot[i].rot);
+                        want = 0;       /* the page is another shape now */
+                    }
                 } else if (p.forget_y >= 0 &&
                            in_rect(in.x, cy, PAD + bw + PAD / 2, p.forget_y, bw, BTN_H)) {
                     if (was_armed) {
