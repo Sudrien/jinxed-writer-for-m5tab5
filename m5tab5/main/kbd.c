@@ -281,7 +281,11 @@ static void identify(usb_device_handle_t dev, const usb_config_desc_t *cfg)
         str_ascii(info.str_desc_manufacturer, mfr, sizeof mfr);
         str_ascii(info.str_desc_product, prod, sizeof prod);
     }
-    if (mfr[0] && prod[0]) snprintf(r->name, sizeof r->name, "%.31s %.31s", mfr, prod);
+    /* A product that already starts with the maker's name ("HID
+     * Keyboard" twice, seen on a 04b4:0510) is shown once (0026). */
+    if (mfr[0] && prod[0] && strncmp(prod, mfr, strlen(mfr)) == 0)
+        snprintf(r->name, sizeof r->name, "%s", prod);
+    else if (mfr[0] && prod[0]) snprintf(r->name, sizeof r->name, "%.31s %.31s", mfr, prod);
     else if (mfr[0] || prod[0]) snprintf(r->name, sizeof r->name, "%s", mfr[0] ? mfr : prod);
     else snprintf(r->name, sizeof r->name, "unnamed keyboard");
     ESP_LOGI(TAG, "keyboard: %s (%04x:%04x)%s", r->name, r->vid, r->pid,
