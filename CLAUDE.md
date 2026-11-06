@@ -198,6 +198,10 @@ scheme for credentials, and never put them on the card.
 Do not suggest updates to the Tab5's ESP32-C6 or esp-hosted. They can
 not be updated.
 
+**esp_hosted stays below 3.1.0** (0016): the manifest's
+`espressif/esp_hosted: ">=3.0.7,<3.1.0"` holds the host side where it
+worked. A tag move keeps that line.
+
 ## Numbers used
 
 - 0001 Save to SD: the document as a mirrored Easysync-subset log
@@ -219,3 +223,4 @@ not be updated.
 - 0017 Spelling: the dictionary through feckless_fetch, on feckless-libs v0.9.2
 - 0018 Spelling: E types the word by hand when no suggestion is it
 - 0019 Settings: which way up, kept in NVS; narrow screens wrap
+- 0020 Docs: README, the spec's built-so-far line, esp_hosted's cap

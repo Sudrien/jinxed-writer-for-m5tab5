@@ -4,6 +4,8 @@ A discreet capture device for getting notes down where a phone shouldn't come ou
 
 Priorities, in order: **never lose a word**, **instant to a cursor**, **discreet**, **battery life**.
 
+**Built so far** (0001-0019): the editor in daily mode, the mirrored log with recovery and export (section 4), the spelling check and its dictionary download (section 5), and the settings page's email account, test email, rotation and library table (section 7). **Not yet:** the power model and scheduled sends (sections 2, 3), background sends and checkpoints (section 6), idle dim and power-off, file mode, highlighting, text scale, setting the clock. The sections below are the design, built or not.
+
 ## 1. Hard constraints
 
 - ESP-IDF 6.1. `sdkconfig.defaults` must contain `CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y` and `CONFIG_ESP32P4_REV_MIN_100=y`. Delete `sdkconfig` after changing them.
@@ -12,7 +14,10 @@ Priorities, in order: **never lose a word**, **instant to a cursor**, **discreet
   - `feckless_graphics_handler`: panel, backlight, gfx (text scaling works)
   - `feckless_storage_handler`: SD arbiter (lease the volume per operation; never hold it open)
   - `feckless_network_handler`: Wi-Fi via the C6, saved networks in NVS
+  - `feckless_mail`: SMTP and the email account (`mailcfg`, `mailform`)
+  - `feckless_keyboard`: the on-screen keyboard that `mailform` links (off here; the USB keyboard types)
   - `feckless_nvs_handler`, `feckless_libversions`, plus the by-name deps each one lists (`usb_host_uac`, `usb_host_msc`, `fatfs` for exFAT)
+- `espressif/esp_hosted` is held at `>=3.0.7,<3.1.0` in the same manifest (0016): 3.1.0's fixed 1536-byte SDIO receive buffers drop the Tab5's C6's batched reads, and no TLS connection opens.
 - Call `tab5io_init()` first thing in `app_main()`.
 - **No RTC/LP/HP memory survives any reset** on this board. Do not rely on `RTC_DATA_ATTR`, `RTC_NOINIT_ATTR`, or `__NOINIT_ATTR`.
 - The reset reason is useless. Every restart reports `WDT` (7), or `USB` (11) after a flash. Deep sleep does not work as a wake model on this board.
