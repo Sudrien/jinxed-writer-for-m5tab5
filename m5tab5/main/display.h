@@ -10,21 +10,40 @@
 #include "esp_err.h"
 #include "gfx.h"
 
-/* The theme: dark, low contrast (spec section 5). */
-#define COL_BG      RGB(0x10, 0x10, 0x12)
-#define COL_TEXT    RGB(0x9A, 0x9A, 0x90)
-#define COL_DIM     RGB(0x50, 0x50, 0x4C)
-#define COL_CURSOR  RGB(0x70, 0x70, 0x68)
+/*
+ * The theme (0021): Dark, Light, Green console or Orange console, chosen
+ * on the settings page and kept in NVS like the rotation. Dark is spec
+ * section 5's dim, low-contrast default. COL_* read the current one, so
+ * a change shows on the next redraw.
+ */
+typedef struct {
+    uint16_t bg, text, dim, cursor;     /* the editor */
+    uint16_t head, rule, btn, field, edge, go, bad;     /* pages, forms */
+} display_theme_t;
 
-/* The settings page and its form: the same dark, a step lighter for
- * things to press. */
-#define COL_HEAD    RGB(0x1C, 0x1C, 0x20)
-#define COL_RULE    RGB(0x2C, 0x2C, 0x30)
-#define COL_BTN     RGB(0x30, 0x30, 0x36)
-#define COL_FIELD   RGB(0x1A, 0x1A, 0x1E)
-#define COL_EDGE    RGB(0x40, 0x40, 0x46)
-#define COL_GO      RGB(0x2E, 0x50, 0x3A)
-#define COL_BAD     RGB(0xA0, 0x58, 0x50)
+#define DISPLAY_THEME_DARK      (0)
+#define DISPLAY_THEME_LIGHT     (1)
+#define DISPLAY_THEME_GREEN     (2)
+#define DISPLAY_THEME_ORANGE    (3)
+#define DISPLAY_THEMES          (4)
+
+extern const display_theme_t *display_col;
+
+int  display_theme(void);
+/* Choose and keep a theme. The caller redraws everything. */
+void display_set_theme(int theme);
+
+#define COL_BG      (display_col->bg)
+#define COL_TEXT    (display_col->text)
+#define COL_DIM     (display_col->dim)
+#define COL_CURSOR  (display_col->cursor)
+#define COL_HEAD    (display_col->head)
+#define COL_RULE    (display_col->rule)
+#define COL_BTN     (display_col->btn)
+#define COL_FIELD   (display_col->field)
+#define COL_EDGE    (display_col->edge)
+#define COL_GO      (display_col->go)
+#define COL_BAD     (display_col->bad)
 
 /*
  * Which way up, in GFX_ROT_* quarter turns: chosen on the settings page

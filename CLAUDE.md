@@ -224,3 +224,4 @@ worked. A tag move keeps that line.
 - 0018 Spelling: E types the word by hand when no suggestion is it
 - 0019 Settings: which way up, kept in NVS; narrow screens wrap
 - 0020 Docs: README, the spec's built-so-far line, esp_hosted's cap
+- 0021 Settings: Dark, Light, Green console and Orange console themes

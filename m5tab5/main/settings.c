@@ -225,11 +225,20 @@ static const struct { int rot; const char *label; } k_rot[4] = {
     { GFX_ROT_180, "Portrait, flipped" },
 };
 
+/* The four themes (0021), laid out as the angles are. */
+static const struct { int theme; const char *label; } k_theme[4] = {
+    { DISPLAY_THEME_DARK,   "Dark" },
+    { DISPLAY_THEME_LIGHT,  "Light" },
+    { DISPLAY_THEME_GREEN,  "Green console" },
+    { DISPLAY_THEME_ORANGE, "Orange console" },
+};
+
 /* Positions in content coordinates, from layout(). */
 typedef struct {
     int edit_y, forget_y;       /* buttons; forget_y < 0 when not shown */
     int test_y;                 /* the test button; < 0 when not shown */
     int rot_y;                  /* the first row of the four angles */
+    int theme_y;                /* the first row of the four themes */
     int libs_y;                 /* first library row */
     int total_h;
 } page_t;
@@ -357,6 +366,16 @@ static page_t layout(bool draw, int scroll)
     }
     y += 2 * (BTN_H + 16);
     TXT(y, "Turns at once, and is kept on this device.", COL_DIM);
+    y += LINE_H + 16;
+    p.theme_y = y;
+    for (int i = 0; i < 4; i++) {
+        const int bx = PAD + (i % 2) * (bw + PAD / 2);
+        const int by = y + (i / 2) * (BTN_H + 16);
+        if (draw) button(bx, off + by, bw, BTN_H, k_theme[i].label,
+                         k_theme[i].theme == display_theme() ? COL_GO : COL_BTN);
+    }
+    y += 2 * (BTN_H + 16);
+    TXT(y, "Colours, kept on this device.", COL_DIM);
     y += LINE_H + SECTION_GAP;
 
     /* Libraries */
@@ -486,6 +505,13 @@ void settings_page(void)
                         display_set_rotation(k_rot[i].rot);
                         want = 0;       /* the page is another shape now */
                     }
+                } else if (cy >= p.theme_y && cy < p.theme_y + 2 * (BTN_H + 16)) {
+                    const int col = in.x >= PAD + bw + PAD / 2 ? 1 : 0;
+                    const int rowi = (cy - p.theme_y) / (BTN_H + 16);
+                    const int i = rowi * 2 + col;
+                    const int bx = PAD + col * (bw + PAD / 2);
+                    const int by = p.theme_y + rowi * (BTN_H + 16);
+                    if (in_rect(in.x, cy, bx, by, bw, BTN_H)) display_set_theme(k_theme[i].theme);
                 } else if (p.forget_y >= 0 &&
                            in_rect(in.x, cy, PAD + bw + PAD / 2, p.forget_y, bw, BTN_H)) {
                     if (was_armed) {
