@@ -478,7 +478,10 @@ static bool repeats(uint8_t usage)
 /* Lines of text shown above the word being checked. */
 #define SPELL_ABOVE     (1)
 #define SPELL_SCALE     (EDITOR_SCALE)
-#define SPELL_LEGEND    "1-9 or Enter: change   Tab: skip   I: ignore all   A: add   Esc: done"
+#define SPELL_LEGEND    "1-9 Enter: change   E: type   Tab: skip   I: ignore all   A: add   Esc: done"
+#define SPELL_TYPE_LEGEND "Enter: change to this   Esc: back to the suggestions"
+/* What a word may be typed as: a few words, if it was one run together. */
+#define SPELL_TYPE_MAX  (64)
 
 typedef struct {
     uint32_t     a, b;          /* the word, when there is one */
@@ -489,6 +492,10 @@ typedef struct {
     char         status[160];   /* the send task's line, under msg */
     spell_word_t sugg[SPELL_SUGG_MAX];
     int          n_sugg, sel;
+    /* E: the word typed by hand, when none of the suggestions is it. */
+    bool         typing;
+    char         typed[SPELL_TYPE_MAX + 1];
+    int          tlen, tcur;
 } spell_view_t;
 
 /* Suggestions that fit the pane. */
@@ -545,8 +552,22 @@ static void spell_draw(const spell_view_t *v)
                       y + GFX_GLYPH_H(SPELL_SCALE) - GFX_GLYPH_H(2), v->note, 2, W - MARGIN_X, COL_DIM);
     }
     y += row + 16;
+    if (v->typing) {
+        /* The field: the text, and a bar where the next letter goes. */
+        const int gw = GFX_GLYPH_W(SPELL_SCALE);
+        gfx_draw_text(MARGIN_X, y, "Type it as it should be:", 2, W - MARGIN_X, COL_DIM);
+        const int fy = y + GFX_GLYPH_H(2) + 12;
+        gfx_fill_rect(MARGIN_X - 12, fy - 2 * SPELL_SCALE, W - 2 * MARGIN_X + 24,
+                      GFX_GLYPH_H(SPELL_SCALE) + 4 * SPELL_SCALE, COL_FIELD);
+        gfx_draw_text(MARGIN_X, fy, v->typed, SPELL_SCALE, W - MARGIN_X, COL_TEXT);
+        gfx_fill_rect(MARGIN_X + v->tcur * gw, fy - SPELL_SCALE, 2 * SPELL_SCALE,
+                      GFX_GLYPH_H(SPELL_SCALE) + 2 * SPELL_SCALE, COL_CURSOR);
+        gfx_draw_text(MARGIN_X, H - 16 - GFX_GLYPH_H(2), SPELL_TYPE_LEGEND, 2, W - MARGIN_X, COL_DIM);
+        gfx_blit(0, H);
+        return;
+    }
     if (v->n_sugg == 0) {
-        gfx_draw_text(MARGIN_X, y, "no suggestions", SPELL_SCALE, W - MARGIN_X, COL_DIM);
+        gfx_draw_text(MARGIN_X, y, "no suggestions -- E to type it", SPELL_SCALE, W - MARGIN_X, COL_DIM);
     }
     for (int i = 0; i < v->n_sugg; i++) {
         const int yy = y + i * row;
@@ -598,10 +619,74 @@ static bool spell_find(spell_view_t *v, uint32_t *at, bool *wrapped, uint32_t st
         v->msg = NULL;
         v->note = NULL;
         v->sel = 0;
+        v->typing = false;
         v->n_sugg = spell_suggest(s_text + a, b - a, v->sugg, spell_fit());
         for (int i = 0; i < v->n_sugg; i++) spell_case_like(s_text + a, b - a, v->sugg[i]);
         return true;
     }
+}
+
+/*
+ * Put `text` where the word is. A suggestion taken (SYMSPELL) is logged
+ * on its own and as the checker's: what is pending is flushed first, and
+ * it straight after. A word typed by hand (USER) is the user's, an edit
+ * like any other. False, with a note, when it will not fit.
+ */
+static bool spell_replace(spell_view_t *v, const char *text, uint32_t n, doclog_src_t src,
+                          uint32_t *stop, uint32_t *at)
+{
+    const uint32_t old = v->b - v->a;
+    if (s_len - old + n > TEXT_MAX) {
+        v->note = "the text is full";
+        return false;
+    }
+    if (src == DOCLOG_SRC_SYMSPELL) save_tick(true);    /* the user's edits, as theirs */
+    s_edit_src = src;
+    erase(v->a, v->b);              /* the cursor goes to a */
+    insert(text, n);
+    s_edit_src = DOCLOG_SRC_USER;
+    if (src == DOCLOG_SRC_SYMSPELL) save_tick(true);    /* the correction, on its own */
+    if (v->a < *stop) *stop = *stop - old + n;
+    *at = v->a + n;
+    return true;
+}
+
+/* A key in the typing field. 1: take what is typed; -1: back to the
+ * suggestions; 0: carry on typing. */
+static int spell_type_key(spell_view_t *v, const kbd_event_t *ev)
+{
+    switch (ev->usage) {
+    case KBD_ENTER:
+    case KBD_KP_ENTER:  return 1;
+    case KBD_ESCAPE:    return -1;
+    case KBD_CAPSLOCK:  s_caps = !s_caps; return 0;
+    case KBD_LEFT:      if (v->tcur > 0) v->tcur--; return 0;
+    case KBD_RIGHT:     if (v->tcur < v->tlen) v->tcur++; return 0;
+    case KBD_HOME:      v->tcur = 0; return 0;
+    case KBD_END:       v->tcur = v->tlen; return 0;
+    case KBD_BACKSPACE:
+        if (v->tcur > 0) {
+            memmove(v->typed + v->tcur - 1, v->typed + v->tcur, (size_t)(v->tlen - v->tcur + 1));
+            v->tcur--;
+            v->tlen--;
+        }
+        return 0;
+    case KBD_DELETE:
+        if (v->tcur < v->tlen) {
+            memmove(v->typed + v->tcur, v->typed + v->tcur + 1, (size_t)(v->tlen - v->tcur));
+            v->tlen--;
+        }
+        return 0;
+    default: break;
+    }
+    if (ev->mods & (KBD_MOD_GUI | KBD_MOD_CTRL | KBD_MOD_ALT)) return 0;
+    const char c = kbd_ascii(ev->usage, ev->mods, s_caps);
+    /* One line: a word, or a few. */
+    if (c < ' ' || c > '~' || v->tlen >= SPELL_TYPE_MAX) return 0;
+    memmove(v->typed + v->tcur + 1, v->typed + v->tcur, (size_t)(v->tlen - v->tcur + 1));
+    v->typed[v->tcur++] = c;
+    v->tlen++;
+    return 0;
 }
 
 /* The check, from the word at the cursor round to it again. Runs on the
@@ -653,6 +738,30 @@ static void spell_view(void)
         }
         if (!open) break;               /* the message: any other key closes */
 
+        if (v.typing) {
+            const int r = spell_type_key(&v, &ev);
+            bool moved = false;
+            if (r < 0) {
+                v.typing = false;
+            } else if (r > 0) {
+                v.typing = false;
+                const uint32_t old = v.b - v.a;
+                if (v.tlen == 0) {
+                    v.note = "nothing typed";
+                } else if ((uint32_t)v.tlen == old && !memcmp(v.typed, s_text + v.a, old)) {
+                    moved = true;       /* unchanged: as a skip */
+                } else {
+                    moved = spell_replace(&v, v.typed, (uint32_t)v.tlen, DOCLOG_SRC_USER, &stop, &at);
+                }
+            }
+            if (moved) {
+                open = spell_find(&v, &at, &wrapped, stop, any);
+                if (open) s_cur = v.a;
+            }
+            spell_draw(&v);
+            continue;
+        }
+
         const bool gui = (ev.mods & (KBD_MOD_GUI | KBD_MOD_CTRL)) != 0;
         const bool plain = (ev.mods & (KBD_MOD_GUI | KBD_MOD_CTRL | KBD_MOD_ALT)) == 0;
         int pick = -1;
@@ -677,27 +786,26 @@ static void spell_view(void)
                 else v.note = "not saved to the card";
             }
             break;
+        case KBD_E:
+            if (plain) {
+                /* Typed by hand, starting from the word: it is usually a
+                 * letter or two from right. */
+                const uint32_t n = v.b - v.a;
+                memcpy(v.typed, s_text + v.a, n);
+                v.typed[n] = '\0';
+                v.tlen = v.tcur = (int)n;
+                v.typing = true;
+                v.note = NULL;
+            }
+            break;
         default:
             if (plain && ev.usage >= KBD_1 && ev.usage < KBD_1 + v.n_sugg) pick = ev.usage - KBD_1;
             break;
         }
 
-        if (pick >= 0) {
-            const uint32_t n = (uint32_t)strlen(v.sugg[pick]);
-            const uint32_t old = v.b - v.a;
-            if (s_len - old + n <= TEXT_MAX) {
-                save_tick(true);        /* the user's edits, as theirs */
-                s_edit_src = DOCLOG_SRC_SYMSPELL;
-                erase(v.a, v.b);        /* the cursor goes to a */
-                insert(v.sugg[pick], n);
-                s_edit_src = DOCLOG_SRC_USER;
-                save_tick(true);        /* the correction, on its own */
-                if (v.a < stop) stop = stop - old + n;
-                at = v.a + n;
-                next = true;
-            } else {
-                v.note = "the text is full";
-            }
+        if (pick >= 0 &&
+            spell_replace(&v, v.sugg[pick], (uint32_t)strlen(v.sugg[pick]), DOCLOG_SRC_SYMSPELL, &stop, &at)) {
+            next = true;
         }
         if (next) {
             open = spell_find(&v, &at, &wrapped, stop, any);

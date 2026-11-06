@@ -217,3 +217,4 @@ not be updated.
 - 0015 Spelling: the download's connect waits longer and tries again
 - 0016 Manifest: esp_hosted below 3.1.0, whose fixed RX buffers drop M5's batched reads
 - 0017 Spelling: the dictionary through feckless_fetch, on feckless-libs v0.9.2
+- 0018 Spelling: E types the word by hand when no suggestion is it

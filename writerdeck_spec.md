@@ -127,7 +127,7 @@ Held keys repeat. Ctrl and Alt chords type nothing.
 
 *On the settings page, today:* Up/Down scroll; PageUp/PageDown scroll a screen; Home/End and GUI+Up/Down jump to the top and bottom; Enter opens the email form; GUI+T sends a test email; Esc or GUI+, closes the page. In the email form: Tab / Shift+Tab or Up / Down move between fields, Enter saves, Esc cancels.
 
-*In the spelling view, today:* 1-9 change the word to that suggestion; Up/Down choose one and Enter takes it; Tab, Space or Right skip the word; I ignores it everywhere until power-off; A adds it to the user's words; Esc, F7 or GUI+; close. When nothing is left, any key closes.
+*In the spelling view, today:* 1-9 change the word to that suggestion; Up/Down choose one and Enter takes it; **E** opens a field with the word in it, to type it as it should be when no suggestion is (letters, Backspace, Delete, Left/Right, Home/End, Caps Lock; Enter changes the word to what is typed, Esc goes back to the suggestions) -- a word typed is the user's change in the log, not the checker's; Tab, Space or Right skip the word; I ignores it everywhere until power-off; A adds it to the user's words; Esc, F7 or GUI+; close. When nothing is left, any key closes.
 
 *Planned, not yet implemented*, modelled on MS Word and on the Mac text-field habits. Each row is "Word / Mac":
 
