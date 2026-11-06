@@ -58,3 +58,15 @@ dependencies:
     git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
     path: components/feckless_network_handler
     version: "v0.9.1"
+  # esp_hosted below 3.1.0, on top of the library's own ">=3.0.2". 3.1.0
+  # (2026-11-05) fixes its SDIO RX staging buffers at 1536 bytes for a
+  # co-processor that sends no SDIO_MODE TLV -- M5's C6 firmware sends
+  # none -- and refuses any larger read ("SDIO RX read (5120 bytes)
+  # exceeds staging target"). The host still runs in streaming mode and
+  # M5's firmware still batches frames, so every TLS handshake lost its
+  # certificate burst and no connection opened. 3.0.x sized the buffer to
+  # the read. dependencies.lock is not committed, so without this each
+  # fresh resolve takes the newest. Lift it when a release handles a
+  # C6 that batches without saying so, or when feckless_network_handler
+  # caps it itself.
+  espressif/esp_hosted: ">=3.0.7,<3.1.0"

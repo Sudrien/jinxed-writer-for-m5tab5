@@ -213,3 +213,4 @@ not be updated.
 - 0013 Spelling: the dictionary from its own repository, by commit
 - 0014 CREDITS.md: SymSpell, symspell-c99, and the dictionary's sources
 - 0015 Spelling: the download's connect waits longer and tries again
+- 0016 Manifest: esp_hosted below 3.1.0, whose fixed RX buffers drop M5's batched reads
