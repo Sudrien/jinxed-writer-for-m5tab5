@@ -41,15 +41,21 @@ extern "C" {
 #define KBD_MOD_ALT     (KBD_MOD_LALT   | KBD_MOD_RALT)
 /* Windows key and Command send the same usage. Spec section 5. */
 #define KBD_MOD_GUI     (KBD_MOD_LGUI   | KBD_MOD_RGUI)
-/* The shortcut modifier (0024): Ctrl, the Windows key or Command, one
- * meaning for all three, so a PC's Ctrl habits and a Mac's Command ones
- * both work and the Windows key is Ctrl. Alt (Option) is the word one. */
-#define KBD_MOD_CMD     (KBD_MOD_CTRL   | KBD_MOD_GUI)
+/* The shortcut modifier on a PC keyboard (0024): Ctrl, and the Windows
+ * key the same. On an Apple keyboard it is Command alone (0027); the
+ * event's `cmd` says which applied. */
+#define KBD_MOD_CMD     (KBD_MOD_CTRL   | KBD_MOD_GUI)  /* on a PC keyboard (0027) */
 
 typedef struct {
     uint8_t usage;      /* HID keyboard-page usage, 0x04 'a' and up */
     uint8_t mods;       /* KBD_MOD_* held when this happened */
     bool    down;       /* press, or release */
+    /* 0027: from the keyboard it came from. `apple` once its report
+     * descriptors name an Apple-only key (0025); `cmd` is the shortcut
+     * modifier held -- Command on an Apple keyboard, Ctrl or the Windows
+     * key on any other. On an Apple keyboard Ctrl is no shortcut. */
+    bool    apple;
+    bool    cmd;
 } kbd_event_t;
 
 /*
@@ -101,6 +107,7 @@ char kbd_ascii(uint8_t usage, uint8_t mods, bool caps);
 #define KBD_COMMA       (0x36)
 #define KBD_CAPSLOCK    (0x39)
 #define KBD_F7          (0x40)
+#define KBD_K           (0x0E)
 #define KBD_HOME        (0x4A)
 #define KBD_PAGEUP      (0x4B)
 #define KBD_DELETE      (0x4C)

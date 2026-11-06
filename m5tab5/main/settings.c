@@ -81,6 +81,7 @@ typedef enum { IN_NONE, IN_KEY, IN_TAP, IN_DRAG } in_kind_t;
 typedef struct {
     in_kind_t kind;
     uint8_t   usage, mods;      /* IN_KEY */
+    bool      cmd;              /* the shortcut modifier, as kbd.h has it (0027) */
     int       x, y;             /* IN_TAP: where it went down */
     int       dy;               /* IN_DRAG: moved since the last poll */
 } input_t;
@@ -101,7 +102,7 @@ static input_t input_poll(void)
     input_t in = { .kind = IN_NONE };
     kbd_event_t ev;
     if (kbd_get(&ev, pdMS_TO_TICKS(POLL_MS))) {
-        if (ev.down) { in.kind = IN_KEY; in.usage = ev.usage; in.mods = ev.mods; }
+        if (ev.down) { in.kind = IN_KEY; in.usage = ev.usage; in.mods = ev.mods; in.cmd = ev.cmd; }
         return in;
     }
     int x, y;
@@ -400,7 +401,8 @@ static page_t layout(bool draw, int scroll)
                          DISPLAY_SCALE_MIN + i == display_text_scale() ? COL_GO : COL_BTN);
     }
     y += BTN_H + 16;
-    TXT(y, "Text size in the editor; Ctrl+= and Ctrl+- there.", COL_DIM);
+    TXT(y, kbd_apple() ? "Text size in the editor; Cmd+= and Cmd+- there."
+                       : "Text size in the editor; Ctrl+= and Ctrl+- there.", COL_DIM);
     y += LINE_H + SECTION_GAP;
 
     /* Libraries */
@@ -478,7 +480,7 @@ void settings_page(void)
         if (sender_gen() != seen_gen) { seen_gen = sender_gen(); redraw = true; }
 
         if (in.kind == IN_KEY) {
-            const bool gui = (in.mods & KBD_MOD_CMD) != 0;   /* Ctrl, Windows, Command (0024) */
+            const bool gui = in.cmd;   /* Command on an Apple keyboard, else Ctrl (0027) */
             switch (in.usage) {
             case KBD_ESCAPE:   goto out;
             case KBD_COMMA:    if (gui) goto out; break;

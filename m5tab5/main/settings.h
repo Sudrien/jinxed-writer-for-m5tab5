@@ -2,13 +2,14 @@
  * settings.h -- the gear, and the full-window settings page behind it.
  * Spec section 7.
  *
- * The page scrolls: drag it, or Up/Down, PageUp/PageDown, Ctrl+Up/Down.
- * Escape, Ctrl+comma or the Back button close it. Sections so far:
+ * The page scrolls: drag it, or Up/Down, PageUp/PageDown, Cmd+Up/Down
+ * (Cmd: Command on an Apple keyboard, else Ctrl; kbd.h). Escape,
+ * Cmd+comma or the Back button close it. Sections so far:
  *
  *   Email (SMTP)   the outgoing account, feckless_mail's mailcfg in NVS;
  *                  Edit opens mailform full-window, typed on the USB
  *                  keyboard or tapped; Forget clears it (tap twice);
- *                  Send test email (or Ctrl+T) sends one through the
+ *                  Send test email (or Cmd+T) sends one through the
  *                  send task, its progress and result beside the button
  *   Libraries      every library this build was made from, its version
  *                  and licence, from feckless_libversions' table

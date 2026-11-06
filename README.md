@@ -10,8 +10,10 @@ Not ready for human consumption yet. `writerdeck_spec.md` is the design;
 ## What works today
 
 - **Writing.** One file a day, `jinxed/YYYY-MM-DD.md` on the card, opened
-  at the end. The keys are in the spec, section 5;
-  Ctrl, the Windows key and Command all do the same.
+  at the end. The keys are in the spec, section 5:
+  Word's on a PC keyboard (Ctrl, or the Windows key), the Mac's on an
+  Apple one (Command and Option). Below, Ctrl is Command on an Apple
+  keyboard.
 - **Nothing lost.** The document is a log of every edit, written twice
   (`.YYYY-MM-DD.md.h0` and `.h1`) and recovered from whichever twin is
   longer after a power cut; the `.md` is regenerated from it. Each edit

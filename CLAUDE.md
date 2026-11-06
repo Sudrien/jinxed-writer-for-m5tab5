@@ -230,3 +230,4 @@ worked. A tag move keeps that line.
 - 0024 Keys: Ctrl, the Windows key and Command are one shortcut modifier
 - 0025 Keyboard: logged when it comes, and whether it has Apple-only keys
 - 0026 Keyboard: a maker's name the product repeats is logged once
+- 0027 Keys: Mac habits on an Apple keyboard, Word's on any other; words and paragraphs

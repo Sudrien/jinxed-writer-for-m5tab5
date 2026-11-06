@@ -79,9 +79,18 @@ static portMUX_TYPE s_pending_lock = portMUX_INITIALIZER_UNLOCKED;
 
 /* ---- reports ---------------------------------------------------------- */
 
-static void post(uint8_t usage, uint8_t mods, bool down)
+static kbd_dev_t *dev_rec(usb_device_handle_t dev);
+
+static void post(const kbd_ctx_t *k, uint8_t usage, uint8_t mods, bool down)
 {
-    const kbd_event_t ev = { .usage = usage, .mods = mods, .down = down };
+    /* 0027: Command is the shortcut key on an Apple keyboard, Ctrl (or
+     * the Windows key) on any other. */
+    const kbd_dev_t *r = dev_rec(k->dev);
+    const bool apple = r && (r->fn || r->globe);
+    const kbd_event_t ev = {
+        .usage = usage, .mods = mods, .down = down, .apple = apple,
+        .cmd = (mods & (apple ? KBD_MOD_GUI : KBD_MOD_CMD)) != 0,
+    };
     if (xQueueSend(s_queue, &ev, 0) != pdTRUE) {
         ESP_LOGW(TAG, "queue full; key 0x%02X dropped", usage);
     }
@@ -107,10 +116,10 @@ static void report(kbd_ctx_t *k, const uint8_t *d, int len)
     if (now[0] == 0x01) return;
 
     for (int i = 0; i < 6; i++) {
-        if (k->prev[i] >= 0x04 && !held(now, k->prev[i])) post(k->prev[i], mods, false);
+        if (k->prev[i] >= 0x04 && !held(now, k->prev[i])) post(k, k->prev[i], mods, false);
     }
     for (int i = 0; i < 6; i++) {
-        if (now[i] >= 0x04 && !held(k->prev, now[i])) post(now[i], mods, true);
+        if (now[i] >= 0x04 && !held(k->prev, now[i])) post(k, now[i], mods, true);
     }
     k->prev_mods = mods;
     memcpy(k->prev, now, 6);
@@ -428,7 +437,7 @@ static void reap(void)
         if (rd && rd->reading > 0) continue;
         /* Release every key it was holding, or a held key repeats for
          * ever on the editor's side. */
-        for (int j = 0; j < 6; j++) if (k->prev[j] >= 0x04) post(k->prev[j], 0, false);
+        for (int j = 0; j < 6; j++) if (k->prev[j] >= 0x04) post(k, k->prev[j], 0, false);
 
         usb_host_endpoint_clear(k->dev, k->xfer->bEndpointAddress);
         usb_host_transfer_free(k->xfer);

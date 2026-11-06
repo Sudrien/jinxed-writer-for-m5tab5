@@ -19,7 +19,7 @@
  * With no card, or a failed write, s_text simply runs ahead of s_base
  * and the next flush that lands carries everything since.
  *
- * Spelling (spell.h) is checked only when asked, F7 or Ctrl+semicolon:
+ * Spelling (spell.h) is checked only when asked, F7 or Ctrl+semicolon (Command+ on an Apple keyboard):
  * the screen splits, the text above with the word marked, the word and
  * what it might be below. A correction is an ordinary edit, but logged
  * on its own and marked as the checker's (DOCLOG_SRC_SYMSPELL): what is
@@ -416,11 +416,85 @@ static void vertical(int dl)
     s_cur = p > mx ? mx : p;
 }
 
-/* One key press (or repeat). True when the screen needs redrawing. */
-static bool key(uint8_t usage, uint8_t mods)
+/* ---- words and paragraphs (0027) ------------------------------------- */
+
+static bool wordc(char c)
 {
-    const bool cmd  = (mods & KBD_MOD_CMD)  != 0;     /* Ctrl, Windows, Command */
-    const bool alt  = (mods & KBD_MOD_ALT)  != 0;
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+           c == '\'' || c == '_' || (unsigned char)c >= 0x80;
+}
+
+/* The start of this word, or of the one before if already there. */
+static uint32_t word_back(uint32_t p)
+{
+    while (p > 0 && !wordc(s_text[p - 1])) p--;
+    while (p > 0 && wordc(s_text[p - 1])) p--;
+    return p;
+}
+
+/* Word's Ctrl+Right: the start of the next word -- past this one (or
+ * this run of punctuation) and the spaces after it. */
+static uint32_t word_next_start(uint32_t p)
+{
+    if (p < s_len && wordc(s_text[p])) {
+        while (p < s_len && wordc(s_text[p])) p++;
+    } else {
+        while (p < s_len && !wordc(s_text[p]) && s_text[p] != ' ' && s_text[p] != '\n') p++;
+    }
+    while (p < s_len && s_text[p] == ' ') p++;
+    if (p < s_len && s_text[p] == '\n' && p == s_cur) p++;   /* across a line end */
+    return p;
+}
+
+/* The Mac's Option+Right: the end of this word, or the next. */
+static uint32_t word_next_end(uint32_t p)
+{
+    while (p < s_len && !wordc(s_text[p])) p++;
+    while (p < s_len && wordc(s_text[p])) p++;
+    return p;
+}
+
+/* The start of this paragraph (text after a newline), or the one
+ * before if already there. */
+static uint32_t para_back(uint32_t p)
+{
+    if (p > 0 && s_text[p - 1] == '\n') p--;
+    while (p > 0 && s_text[p - 1] != '\n') p--;
+    return p;
+}
+
+/* Word's Ctrl+Down: the start of the next paragraph, or the end. */
+static uint32_t para_next_start(uint32_t p)
+{
+    while (p < s_len && s_text[p] != '\n') p++;
+    return p < s_len ? p + 1 : p;
+}
+
+/* The Mac's Option+Down: the end of this paragraph, or the next. */
+static uint32_t para_next_end(uint32_t p)
+{
+    if (p < s_len && s_text[p] == '\n') p++;
+    while (p < s_len && s_text[p] != '\n') p++;
+    return p;
+}
+
+/*
+ * One key press (or repeat). True when the screen needs redrawing.
+ *
+ * The keys follow the keyboard (0027, spec 5). On an Apple keyboard,
+ * the Mac's: Command with the arrows for the line and the document,
+ * Option for words and paragraphs, and Ctrl a shortcut for nothing. On
+ * any other, Word's: Ctrl (or the Windows key) with the arrows for
+ * words and paragraphs, Ctrl+Home / End for the document; Alt with the
+ * arrows does words too.
+ */
+static bool key(const kbd_event_t *ev)
+{
+    const uint8_t usage = ev->usage, mods = ev->mods;
+    const bool apple = ev->apple;
+    const bool cmd   = ev->cmd;
+    const bool alt   = (mods & KBD_MOD_ALT)   != 0;
+    const bool shift = (mods & KBD_MOD_SHIFT) != 0;
     const bool keep_col = usage == KBD_UP || usage == KBD_DOWN ||
                           usage == KBD_PAGEUP || usage == KBD_PAGEDOWN;
     if (!keep_col) s_want_col = -1;
@@ -428,10 +502,9 @@ static bool key(uint8_t usage, uint8_t mods)
     layout();
     const int cl = cursor_line();
 
-    /* Text larger / smaller (0022), number row or keypad: Ctrl+= (Ctrl++)
-     * and Ctrl+- -- Ctrl, the Windows key or Command (0023, 0024). */
+    /* Text larger / smaller (0022), number row or keypad. */
     if (cmd && (usage == KBD_EQUAL || usage == KBD_KP_PLUS ||
-                          usage == KBD_MINUS || usage == KBD_KP_MINUS)) {
+                usage == KBD_MINUS || usage == KBD_KP_MINUS)) {
         const int up = usage == KBD_EQUAL || usage == KBD_KP_PLUS;
         const int was = display_text_scale();
         display_set_text_scale(was + (up ? 1 : -1));
@@ -441,23 +514,51 @@ static bool key(uint8_t usage, uint8_t mods)
         return true;
     }
 
-    /* The shortcut modifier (spec section 5, 0024): Ctrl, the Windows key
-     * or Command, all one. */
-    if (cmd) {
+    /* The whole visual line, and its newline if it has one: Command+
+     * Backspace on a Mac, Ctrl+Shift+Backspace or Ctrl+Shift+K on a PC
+     * (Ctrl+Backspace is a word there). */
+    if (cmd && ((apple && usage == KBD_BACKSPACE) ||
+                (!apple && shift && (usage == KBD_BACKSPACE || usage == KBD_K)))) {
+        erase(s_ls[cl], line_next(cl));
+        return true;
+    }
+
+    if (apple && cmd) {                 /* Command */
         switch (usage) {
         case KBD_LEFT:      s_cur = s_ls[cl]; return true;
         case KBD_RIGHT:     s_cur = line_cursor_max(cl); return true;
         case KBD_UP:        s_cur = 0; return true;
         case KBD_DOWN:      s_cur = s_len; return true;
-        case KBD_BACKSPACE: {
-            /* The whole visual line, and its newline if it has one. */
-            uint32_t to = line_next(cl);
-            erase(s_ls[cl], to);
-            return true;
-        }
         default:            return false;
         }
     }
+    if (apple && alt) {                 /* Option */
+        switch (usage) {
+        case KBD_LEFT:      s_cur = word_back(s_cur); return true;
+        case KBD_RIGHT:     s_cur = word_next_end(s_cur); return true;
+        case KBD_UP:        s_cur = para_back(s_cur); return true;
+        case KBD_DOWN:      s_cur = para_next_end(s_cur); return true;
+        case KBD_BACKSPACE: erase(word_back(s_cur), s_cur); return true;
+        case KBD_DELETE:    erase(s_cur, word_next_end(s_cur)); return true;
+        default:            return false;
+        }
+    }
+    if (!apple && (cmd || alt)) {       /* Ctrl, the Windows key, Alt */
+        switch (usage) {
+        case KBD_LEFT:      s_cur = word_back(s_cur); return true;
+        case KBD_RIGHT:     s_cur = word_next_start(s_cur); return true;
+        case KBD_UP:        s_cur = para_back(s_cur); return true;
+        case KBD_DOWN:      s_cur = para_next_start(s_cur); return true;
+        case KBD_HOME:      s_cur = 0; return true;
+        case KBD_END:       s_cur = s_len; return true;
+        case KBD_BACKSPACE: erase(word_back(s_cur), s_cur); return true;
+        case KBD_DELETE:    erase(s_cur, word_next_start(s_cur)); return true;
+        default:            return false;
+        }
+    }
+    /* Ctrl on an Apple keyboard, and anything held with Command: no
+     * shortcut, and it types nothing. */
+    if (mods & (KBD_MOD_CTRL | KBD_MOD_GUI)) return false;
 
     switch (usage) {
     case KBD_CAPSLOCK:  s_caps = !s_caps; return true;
@@ -475,8 +576,6 @@ static bool key(uint8_t usage, uint8_t mods)
     default:            break;
     }
 
-    /* Alt chords type nothing; they are left for word movement. */
-    if (alt) return false;
     const char c = kbd_ascii(usage, mods, s_caps);
     if (c == '\n' || (c >= 0x20 && c < 0x7F)) {
         insert(&c, 1);
@@ -843,7 +942,7 @@ static void spell_view(void)
             continue;
         }
 
-        const bool gui = (ev.mods & KBD_MOD_CMD) != 0;
+        const bool gui = ev.cmd;
         const bool plain = (ev.mods & (KBD_MOD_GUI | KBD_MOD_CTRL | KBD_MOD_ALT)) == 0;
         int pick = -1;
         bool next = false;
@@ -941,7 +1040,8 @@ esp_err_t editor_init(void)
 
 void editor_run(void)
 {
-    uint8_t  held = 0, held_mods = 0;   /* the key repeating, if any */
+    uint8_t  held = 0;                  /* the key repeating, if any */
+    kbd_event_t held_ev = { 0 };
     TickType_t next_repeat = 0;
     bool had_kbd = kbd_present();
     bool had_card = storage_present(STORAGE_SD);
@@ -964,23 +1064,22 @@ void editor_run(void)
         kbd_event_t ev;
         bool dirty = false;
         if (kbd_get(&ev, wait)) {
-            if (ev.down && ev.usage == KBD_COMMA && (ev.mods & KBD_MOD_CMD)) {
+            if (ev.down && ev.usage == KBD_COMMA && ev.cmd) {
                 open_settings = true;       /* spec 7: from the keyboard too */
-            } else if (ev.down && (ev.usage == KBD_F7 || (ev.usage == KBD_SEMICOLON &&
-                                   (ev.mods & (KBD_MOD_GUI | KBD_MOD_CTRL))))) {
+            } else if (ev.down && (ev.usage == KBD_F7 || (ev.usage == KBD_SEMICOLON && ev.cmd))) {
                 open_spell = true;          /* spec 5: Word's F7, the Mac's Cmd+; */
             } else if (ev.down) {
-                dirty = key(ev.usage, ev.mods);
+                dirty = key(&ev);
                 if (repeats(ev.usage)) {
                     held = ev.usage;
-                    held_mods = ev.mods;
+                    held_ev = ev;
                     next_repeat = xTaskGetTickCount() + pdMS_TO_TICKS(REPEAT_DELAY_MS);
                 }
             } else if (ev.usage == held) {
                 held = 0;
             }
         } else if (held) {
-            dirty = key(held, held_mods);
+            dirty = key(&held_ev);
             next_repeat = xTaskGetTickCount() + pdMS_TO_TICKS(REPEAT_RATE_MS);
         }
 
