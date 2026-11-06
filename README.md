@@ -43,7 +43,8 @@ Not ready for human consumption yet. `writerdeck_spec.md` is the design;
   versions and licences.
 
 - **Email now:** Ctrl+Enter (Command+Enter), or Send notes now in
-  Settings, mails today's text to the account set up there.
+  Settings, mails today's text to the account set up there: in the body,
+  and attached as the day's `.md` with its log (`.md.h0`) beside it.
 
 ## Not yet
 

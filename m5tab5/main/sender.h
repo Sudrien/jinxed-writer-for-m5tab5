@@ -42,9 +42,16 @@ bool sender_test(void);
  * as one message: subject "Jinxed Writer: <name>" and `range`. Both are
  * copied before this returns, so the caller's text may change at once.
  * False if a send or a fetch is running, or there is no room for it.
+ *
+ * 0041: the text is inline, as before, and also attached as `name`
+ * (text/markdown, footer and all); and `log` -- called here, on the
+ * caller's task, into a buffer of SENDER_LOG_MAX -- is attached as
+ * `name`.h0 when it gives bytes. A log over the cap is left off and
+ * the result line says so.
  */
+#define SENDER_LOG_MAX  (4 * 1024 * 1024)
 bool sender_send_doc(const char *name, const char *range, const char *text, uint32_t len,
-                     const char *foot);
+                     const char *foot, size_t (*log)(void *buf, size_t cap, bool *too_big));
 
 /* Start fetching the spelling dictionary from SPELL_DICT_URL to
  * SPELL_DIR/SPELL_DICT. False if a send or a fetch is already running.

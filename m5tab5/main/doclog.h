@@ -68,6 +68,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "esp_err.h"
@@ -86,6 +87,14 @@ typedef enum {
     DOCLOG_SRC_USER     = 0,
     DOCLOG_SRC_SYMSPELL = 1,
 } doclog_src_t;
+
+/*
+ * 0041: the open log's first twin (h0) into `buf`, whole, for an email:
+ * its length, or 0 when there is no log open, no card, it will not read,
+ * or it is longer than `cap` (*too_big then true). On the caller's task,
+ * which is the one that appends, so the read never meets a write.
+ */
+size_t doclog_copy_log(void *buf, size_t cap, bool *too_big);
 
 /* 0038: the export's footer (0037) on its own, for an email's body:
  * at most DOCLOG_FOOT_MAX bytes, NUL-terminated, into `f`. Its length. */

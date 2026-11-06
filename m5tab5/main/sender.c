@@ -67,7 +67,13 @@ typedef enum { JOB_TEST, JOB_DICT, JOB_DOC } job_t;
  * whole text, the footer and a NUL. */
 #define DOC_MAX         (256 * 1024 + DOCLOG_FOOT_MAX + 1)
 static char              *s_doc;
+static uint32_t           s_doc_len;
 static char               s_subject[96];
+/* 0041: the files: the .md, the log. */
+static char              *s_log;        /* SENDER_LOG_MAX, PSRAM, made at the first send */
+static size_t             s_log_len;
+static bool               s_log_big;
+static char               s_md_name[40], s_log_name[44];
 
 static TaskHandle_t       s_task;
 static volatile job_t     s_job;
@@ -122,7 +128,8 @@ static bool online(void) { return wifi_connected() || net_online(); }
  * unchanged but for the subject and body, so the test and a document go
  * the same way.
  */
-static void send_one(const char *subject, const char *body)
+static void send_one(const char *subject, const char *body, const mailsend_attach_t *att, size_t n_att,
+                     const char *note)
 {
     const int64_t t0 = esp_timer_get_time();
     const bool configured = mailcfg_load(NULL, &s_cfg);
@@ -149,8 +156,8 @@ static void send_one(const char *subject, const char *body)
         if (!rtc8130_read(&now)) now = 0;
         const int64_t left_ms = (int64_t)MAILSEND_TIMEOUT_MS - (esp_timer_get_time() - t0) / 1000;
         mailsend_result_t r;
-        mailsend(&s_cfg, subject, body, now, left_ms > 1000 ? (uint32_t)left_ms : 1000, &r);
-        if (r.err == MAILSEND_OK) snprintf(line, sizeof line, "sent to %s", dom);
+        mailsend_with(&s_cfg, subject, body, att, n_att, now, left_ms > 1000 ? (uint32_t)left_ms : 1000, &r);
+        if (r.err == MAILSEND_OK) snprintf(line, sizeof line, "sent to %s%s", dom, note ? note : "");
         else                      snprintf(line, sizeof line, "not sent: %s", r.why);
         set_line(line);
     }
@@ -165,7 +172,18 @@ static void test_send(void)
              "This is a test message from Jinxed Writer.\n"
              "\n"
              "If it arrived, the email account on the settings page works,\n"
-             "and notes will be able to reach this address.\n");
+             "and notes will be able to reach this address.\n", NULL, 0, NULL);
+}
+
+/* 0041: the text inline, and the .md and the log attached. */
+static void doc_send(void)
+{
+    mailsend_attach_t a[2] = {
+        { .name = s_md_name, .type = "text/markdown", .data = s_doc, .len = s_doc_len },
+        { .name = s_log_name, .data = s_log, .len = s_log_len },
+    };
+    send_one(s_subject, s_doc, a, s_log_len ? 2 : 1,
+             s_log_big ? "; the log was too big to attach" : NULL);
 }
 
 /* ---- the dictionary ------------------------------------------------------ */
@@ -280,7 +298,7 @@ static void send_task(void *arg)
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         if (s_job == JOB_DICT)     fetch_dict();
-        else if (s_job == JOB_DOC) send_one(s_subject, s_doc);
+        else if (s_job == JOB_DOC) doc_send();
         else                       test_send();
         s_busy = false;
         s_gen++;
@@ -326,15 +344,21 @@ bool sender_test(void)
 }
 
 bool sender_send_doc(const char *name, const char *range, const char *text, uint32_t len,
-                     const char *foot)
+                     const char *foot, size_t (*log)(void *buf, size_t cap, bool *too_big))
 {
     if (!s_task || s_busy) return false;
     if (!s_doc) s_doc = heap_caps_malloc(DOC_MAX, MALLOC_CAP_SPIRAM);
+    if (!s_log) s_log = heap_caps_malloc(SENDER_LOG_MAX, MALLOC_CAP_SPIRAM);   /* none: no log attached */
     const size_t fl = foot ? strlen(foot) : 0;
     if (!s_doc || (size_t)len + fl + 1 > DOC_MAX) return false;
     s_busy = true;
     memcpy(s_doc, text, len);
     memcpy(s_doc + len, foot ? foot : "", fl + 1);
+    s_doc_len = len + (uint32_t)fl;
+    s_log_big = false;
+    s_log_len = s_log && log ? log(s_log, SENDER_LOG_MAX, &s_log_big) : 0;
+    snprintf(s_md_name, sizeof s_md_name, "%.32s", name);
+    snprintf(s_log_name, sizeof s_log_name, "%.32s.h0", name);
     snprintf(s_subject, sizeof s_subject, "Jinxed Writer: %.32s, %.40s", name, range);
     s_job = JOB_DOC;
     set_line("Starting...");

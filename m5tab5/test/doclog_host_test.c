@@ -350,6 +350,20 @@ int main(void)
             assert(ex(more) == 0 && file_is(EXP, full(more)) && fsize(CONF) < 0);
         }
         unlink(CONF); unlink(SIDE);
+        /* 0041: the log, whole, for an email; and too big for its cap. */
+        {
+            static char lb[1 << 16], fb[1 << 16];
+            bool big = true;
+            assert(doclog_append(got, len, "copied", 6, 1, true, DOCLOG_SRC_USER, NULL) == 0);
+            const size_t n = doclog_copy_log(lb, sizeof lb, &big);
+            FILE *h = fopen(P0, "rb");
+            const size_t m = fread(fb, 1, sizeof fb, h);
+            fclose(h);
+            assert(!big && n > 64 && n == m && !memcmp(lb, fb, n));
+            assert(doclog_copy_log(lb, n - 1, &big) == 0 && big);
+            doclog_close();
+            assert(doclog_copy_log(lb, sizeof lb, &big) == 0 && !big);
+        }
         puts("export: ok");
     }
 

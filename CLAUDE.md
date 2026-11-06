@@ -244,3 +244,4 @@ worked. A tag move keeps that line.
 - 0038 Send: today's notes by email now, Cmd+Enter or a button on the settings page
 - 0039 Editor: undo and redo, indent and unindent, find; no go to line
 - 0040 Fix: wrapped text read through gfx_wrap_line()'s NULL at the end
+- 0041 Send: the notes' .md and log attached, on feckless-libs v0.9.7

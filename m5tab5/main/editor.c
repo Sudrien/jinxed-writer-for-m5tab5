@@ -581,7 +581,7 @@ static bool send_now(void)
     const bool t_ok = rtc_now(&t);
     const esp_app_desc_t *d = esp_app_get_description();
     doclog_footer(foot, settings_author(), t, t_ok, d ? d->version : NULL);
-    const bool ok = sender_send_doc(s_name, range, s_text, s_len, foot);
+    const bool ok = sender_send_doc(s_name, range, s_text, s_len, foot, doclog_copy_log);
     if (ok) {
         s_sending = true;
         s_send_until = 0;

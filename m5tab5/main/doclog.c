@@ -769,6 +769,32 @@ esp_err_t doclog_export(const char *text, uint32_t len, const char *author,
     return err;
 }
 
+size_t doclog_copy_log(void *buf, size_t cap, bool *too_big)
+{
+    *too_big = false;
+    if (!s_open || !VOL_PRESENT()) return 0;
+    VOL_HOLD();
+    size_t got = 0;
+    struct stat st;
+    if (stat(s_path[0], &st) == 0 && st.st_size > 0) {
+        /* st_size is the whole file's: a log is ours, and capped by
+         * `cap` well under 2 GB, so off_t holds it (CLAUDE.md's rule is
+         * for files a user brings). */
+        if ((unsigned long long)st.st_size > cap) {
+            *too_big = true;
+        } else {
+            FILE *f = fopen(s_path[0], "rb");
+            if (f) {
+                got = fread(buf, 1, (size_t)st.st_size, f);
+                if (ferror(f) || got != (size_t)st.st_size) got = 0;
+                fclose(f);
+            }
+        }
+    }
+    VOL_RELEASE();
+    return got;
+}
+
 int doclog_author_id(const char *name)
 {
     if (!name || !name[0]) return 0;
