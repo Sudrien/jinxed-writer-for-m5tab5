@@ -98,6 +98,8 @@ static int       s_lines;
 static int       s_top;         /* first line on screen */
 
 static int       s_cols, s_rows, s_line_h, s_status_y;
+static int       s_cols_head;   /* 0032: a heading's columns, heavy cells */
+static uint8_t  *s_mds;         /* 0031: markdown styles, TEXT_MAX bytes, PSRAM */
 /* F11's bare page (0029): no word count and no gear. The status line's
  * row is given to the text unless something there must be seen --
  * no keyboard, caps, no card, not saved -- which brings it back. Until
@@ -127,13 +129,32 @@ static TickType_t s_attach_after;
  * line, so the cursor has somewhere to sit before the next word -- or,
  * with no space to break at, mid-word at the edge.
  */
-static void line_from(uint32_t s, uint32_t *end, uint32_t *next)
+/* 0032: is the logical line holding text position `at` a markdown
+ * heading? Its rows are drawn heavy, in GFX_HEAVY_W cells, and wrap at
+ * s_cols_head. */
+static bool head_line(uint32_t at)
+{
+    if (!display_markdown() || !s_mds) return false;
+    uint32_t a = at;
+    while (a > 0 && s_text[a - 1] != '\n') a--;
+    uint32_t b = a;
+    while (b < s_len && s_text[b] != '\n' && b - a < 16) b++;   /* "   ###### " fits */
+    return md_is_heading(s_text + a, b - a);
+}
+
+/* A row's cell width: heavy on a heading (0032). */
+static int row_gw(int l)
+{
+    return head_line(s_ls[l]) ? GFX_HEAVY_W(EDITOR_SCALE) : GFX_GLYPH_W(EDITOR_SCALE);
+}
+
+static void line_from(uint32_t s, int cols, uint32_t *end, uint32_t *next)
 {
     uint32_t last_space = UINT32_MAX;
     for (uint32_t i = s; i < s_len; i++) {
         const char c = s_text[i];
         if (c == '\n') { *end = i; *next = i + 1; return; }
-        if (i - s == (uint32_t)s_cols) {
+        if (i - s == (uint32_t)cols) {
             if (c == ' ') { *end = i; *next = i + 1; return; }
             if (last_space != UINT32_MAX) { *end = last_space; *next = last_space + 1; return; }
             *end = i; *next = i;
@@ -149,9 +170,11 @@ static void layout(void)
 {
     uint32_t s = 0;
     s_lines = 0;
+    bool head = false;
     for (;;) {
         uint32_t e, n;
-        line_from(s, &e, &n);
+        if (s == 0 || s_text[s - 1] == '\n') head = head_line(s);
+        line_from(s, head ? s_cols_head : s_cols, &e, &n);
         s_ls[s_lines] = s;
         s_le[s_lines] = e;
         s_lines++;
@@ -213,7 +236,6 @@ static uint32_t word_count(void)
  * it, so the columns do not move: code's background first, then the
  * spelling mark, then the text, markers dim, then strikes.
  */
-static uint8_t  *s_mds;         /* TEXT_MAX bytes, PSRAM */
 static uint32_t  s_md_from;     /* the logical line in s_mds, or UINT32_MAX */
 
 static void md_for(uint32_t at)
@@ -246,7 +268,7 @@ static void row_runs(uint32_t rs, uint32_t re, int y, run_fn_t fn)
         while (j < re && s_mds[j] == m) j++;
         memcpy(s_row_buf, s_text + i, j - i);
         s_row_buf[j - i] = '\0';
-        const int w = gfx_text_w(s_row_buf, EDITOR_SCALE);
+        const int w = gfx_text_w_style(s_row_buf, EDITOR_SCALE, gfx_style(m));
         fn(x, y, s_row_buf, w, m);
         x += w;
         i = j;
@@ -277,7 +299,6 @@ static void run_strike(int x, int y, const char *s, int w, uint8_t m)
 static void draw_rows(int top, int rows, uint32_t hl_a, uint32_t hl_b)
 {
     const int W = gfx_w();
-    const int gw = GFX_GLYPH_W(EDITOR_SCALE);
     const bool md = display_markdown() && s_mds;
     s_md_from = UINT32_MAX;             /* the text may have changed */
     for (int r = 0; r < rows && top + r < s_lines; r++) {
@@ -292,6 +313,7 @@ static void draw_rows(int top, int rows, uint32_t hl_a, uint32_t hl_b)
         if (styled) row_runs(rs, re, y, run_bg);
         const uint32_t a = hl_a > rs ? hl_a : rs;
         const uint32_t b = hl_b < re ? hl_b : re;
+        const int gw = a < b ? row_gw(l) : 0;
         if (a < b) {
             gfx_fill_rect(MARGIN_X + (int)(a - rs) * gw - EDITOR_SCALE, y - EDITOR_SCALE,
                           (int)(b - a) * gw + EDITOR_SCALE,
@@ -326,12 +348,12 @@ static void redraw(void)
 
     const int W = gfx_w();
     const int H = gfx_h();
-    const int gw = GFX_GLYPH_W(EDITOR_SCALE);
     gfx_fill_rect(0, 0, W, H, COL_BG);
     draw_rows(s_top, s_rows, 0, 0);
 
-    /* A bar before the character, as tall as the glyph. */
-    const int cx = MARGIN_X + (int)(s_cur - s_ls[cl]) * gw;
+    /* A bar before the character, as tall as the glyph -- in a heading's
+     * wider cells on a heading (0032). */
+    const int cx = MARGIN_X + (int)(s_cur - s_ls[cl]) * row_gw(cl);
     const int cy = MARGIN_Y + (cl - s_top) * s_line_h;
     gfx_fill_rect(cx - EDITOR_SCALE, cy, EDITOR_SCALE, GFX_GLYPH_H(EDITOR_SCALE), COL_CURSOR);
 
@@ -1233,6 +1255,7 @@ static void measure(void)
     s_scale  = display_text_scale();
     s_foot   = display_foot_scale();
     s_cols   = (W - 2 * MARGIN_X) / GFX_GLYPH_W(EDITOR_SCALE);
+    s_cols_head = (W - 2 * MARGIN_X) / GFX_HEAVY_W(EDITOR_SCALE);
     s_line_h = GFX_GLYPH_H(EDITOR_SCALE) + 4 * EDITOR_SCALE;
     s_status_y = H - MARGIN_Y / 2 - GFX_GLYPH_H(FOOT_SCALE);
     s_rows   = ((s_foot_on ? s_status_y : H - MARGIN_Y / 2) - MARGIN_Y - 8) / s_line_h;

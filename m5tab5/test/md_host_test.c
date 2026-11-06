@@ -66,6 +66,18 @@ int main(void)
     t("x**y**z",                    ".mmbmm.");
     t("x__y__z",                    ".......");
     t("\xc3\xa9 *\xc3\xbc* x",          "...miim..");   /* UTF-8 inside */
+    /* 0032: what the editor widens. */
+    static const struct { const char *s; bool head; } hs[] = {
+        { "# T", true }, { "###### T", true }, { "   # T", true }, { "#", true },
+        { "    # T", false }, { "####### T", false }, { "#T", false },
+        { "\\# T", false }, { "", false }, { "plain", false },
+    };
+    for (size_t i = 0; i < sizeof hs / sizeof hs[0]; i++) {
+        if (md_is_heading(hs[i].s, strlen(hs[i].s)) != hs[i].head) {
+            fails++;
+            printf("FAIL  md_is_heading(\"%s\") should be %d\n", hs[i].s, hs[i].head);
+        }
+    }
     printf("md: %s\n", fails ? "FAILED" : "all passed");
     return fails != 0;
 }

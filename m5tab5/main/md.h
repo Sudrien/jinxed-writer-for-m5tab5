@@ -21,6 +21,7 @@
  */
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -30,6 +31,11 @@
 #define MD_STRIKE   (0x08)
 #define MD_CODE     (0x10)  /* inside `code`, its backticks too */
 #define MD_HEAD     (0x20)  /* a heading's text */
+
+/* Whether the line s[0..n) is a heading: up to three spaces, one to six
+ * '#', then a space or the end -- and not \#. Its text is drawn heavy,
+ * in cells a font pixel wider (0032). */
+bool md_is_heading(const char *s, size_t n);
 
 /* st[0..n) for the line s[0..n), which holds no newline. */
 void md_line(const char *s, size_t n, uint8_t *st);

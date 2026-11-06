@@ -59,14 +59,25 @@ static void code_spans(const char *s, size_t n, uint8_t *st)
     }
 }
 
-static void heading(const char *s, size_t n, uint8_t *st)
+/* The heading's first '#', or n if the line is no heading. */
+static size_t heading_at(const char *s, size_t n)
 {
     size_t i = 0;
     while (i < n && i < 3 && s[i] == ' ') i++;      /* up to three spaces in */
     size_t h = 0;
     while (i + h < n && s[i + h] == '#') h++;
-    if (h < 1 || h > 6 || (i + h < n && s[i + h] != ' ' && s[i + h] != '\t')) return;
-    if (st[i] & MD_LIT) return;                     /* \# */
+    if (h < 1 || h > 6 || (i + h < n && s[i + h] != ' ' && s[i + h] != '\t')) return n;
+    return i;                   /* a backslash before it is a character, not a space */
+}
+
+bool md_is_heading(const char *s, size_t n) { return heading_at(s, n) < n; }
+
+static void heading(const char *s, size_t n, uint8_t *st)
+{
+    const size_t i = heading_at(s, n);
+    if (i >= n) return;
+    size_t h = 0;
+    while (i + h < n && s[i + h] == '#') h++;
     for (size_t q = i; q < i + h; q++) st[q] |= MD_MARK;
     for (size_t q = i; q < n; q++) st[q] |= MD_HEAD;
 }
