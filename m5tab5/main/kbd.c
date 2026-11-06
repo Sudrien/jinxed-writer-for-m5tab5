@@ -12,6 +12,7 @@
  */
 #include "kbd.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -22,6 +23,8 @@
 #include "freertos/task.h"
 #include "usb/usb_host.h"
 #include "usbhost.h"
+
+#include "hidrpt.h"
 
 static const char *TAG = "kbd";
 
@@ -34,6 +37,9 @@ static const char *TAG = "kbd";
 #define HID_PROTO_KEYBOARD      (0x01)
 #define HID_REQ_SET_IDLE        (0x0A)
 #define HID_REQ_SET_PROTOCOL    (0x0B)
+#define HID_DESC_HID            (0x21)
+#define HID_DESC_REPORT         (0x22)
+#define REPORT_DESC_MAX         (1024)  /* larger ones are read this far */
 
 typedef struct {
     bool                 used;
@@ -49,6 +55,23 @@ typedef struct {
 static usb_host_client_handle_t s_client;
 static QueueHandle_t            s_queue;
 static kbd_ctx_t                s_kbd[KBD_MAX];
+
+/*
+ * 0025: what each keyboard device is -- its name and IDs, logged when it
+ * comes, and whether its HID report descriptors name keys only Apple's
+ * keyboards have (hidrpt.h), logged once the last one is read. One per
+ * device, not per interface.
+ */
+typedef struct {
+    bool                 used;
+    usb_device_handle_t  dev;
+    char                 name[64];
+    uint16_t             vid, pid;
+    int                  reading;   /* report descriptors still to come */
+    bool                 fn, globe;
+} kbd_dev_t;
+
+static kbd_dev_t s_dev[KBD_MAX];
 
 static uint8_t      s_pending[PENDING_MAX];
 static int          s_pending_n;
@@ -151,6 +174,141 @@ static void class_request(usb_device_handle_t dev, uint8_t itf,
     if (usb_host_transfer_submit_control(s_client, t) != ESP_OK) usb_host_transfer_free(t);
 }
 
+/* ---- what the keyboard is (0025) -------------------------------------- */
+
+static kbd_dev_t *dev_rec(usb_device_handle_t dev)
+{
+    for (int i = 0; i < KBD_MAX; i++) if (s_dev[i].used && s_dev[i].dev == dev) return &s_dev[i];
+    return NULL;
+}
+
+/* A USB string descriptor (UTF-16LE) as ASCII, '?' for the rest. */
+static size_t str_ascii(const usb_str_desc_t *sd, char *out, size_t size)
+{
+    size_t n = 0;
+    if (sd && sd->bLength >= 2) {
+        const size_t chars = (size_t)(sd->bLength - 2) / 2;
+        for (size_t i = 0; i < chars && n + 1 < size; i++) {
+            const uint16_t c = sd->wData[i];
+            out[n++] = (c >= 0x20 && c < 0x7F) ? (char)c : '?';
+        }
+    }
+    out[n] = '\0';
+    return n;
+}
+
+static void dev_summary(const kbd_dev_t *r)
+{
+    if (r->fn || r->globe) {
+        ESP_LOGI(TAG, "%s (%04x:%04x): Apple-only keys:%s%s", r->name, r->vid, r->pid,
+                 r->fn ? " fn" : "", r->globe ? " globe" : "");
+    } else {
+        ESP_LOGI(TAG, "%s (%04x:%04x): no Apple-only keys", r->name, r->vid, r->pid);
+    }
+}
+
+static void desc_cb(usb_transfer_t *t)
+{
+    const uint8_t itf = (uint8_t)(uintptr_t)t->context;
+    kbd_dev_t *r = dev_rec(t->device_handle);
+    if (t->status == USB_TRANSFER_STATUS_COMPLETED && t->actual_num_bytes > (int)sizeof(usb_setup_packet_t)) {
+        hidrpt_t h;
+        const size_t n = (size_t)t->actual_num_bytes - sizeof(usb_setup_packet_t);
+        hidrpt_scan(t->data_buffer + sizeof(usb_setup_packet_t), n, &h);
+        ESP_LOGI(TAG, "itf %u: report descriptor %u bytes, %d items%s%s%s%s", itf, (unsigned)n, h.items,
+                 h.fn ? ", Apple fn" : "", h.globe ? ", globe" : "",
+                 h.vendor ? ", a vendor page" : "", h.ok ? "" : ", cut short");
+        if (r) { r->fn |= h.fn; r->globe |= h.globe; }
+    } else {
+        ESP_LOGW(TAG, "itf %u: report descriptor not read (status %d)", itf, (int)t->status);
+    }
+    usb_host_transfer_free(t);
+    if (r && --r->reading == 0) dev_summary(r);
+}
+
+/* GET_DESCRIPTOR(Report) for one interface, fire and forget, as
+ * class_request() is. True if it went. */
+static bool report_desc_request(usb_device_handle_t dev, uint8_t itf, uint16_t len)
+{
+    if (len > REPORT_DESC_MAX) len = REPORT_DESC_MAX;
+    usb_transfer_t *t = NULL;
+    /* Room to a whole 64-byte packet past what is asked for. */
+    if (usb_host_transfer_alloc(sizeof(usb_setup_packet_t) + ((len + 63u) & ~63u), 0, &t) != ESP_OK) {
+        return false;
+    }
+    usb_setup_packet_t *s = (usb_setup_packet_t *)t->data_buffer;
+    s->bmRequestType = USB_BM_REQUEST_TYPE_DIR_IN | USB_BM_REQUEST_TYPE_TYPE_STANDARD |
+                       USB_BM_REQUEST_TYPE_RECIP_INTERFACE;
+    s->bRequest = USB_B_REQUEST_GET_DESCRIPTOR;
+    s->wValue   = (uint16_t)(HID_DESC_REPORT << 8);
+    s->wIndex   = itf;
+    s->wLength  = len;
+
+    t->device_handle    = dev;
+    t->bEndpointAddress = 0;
+    t->num_bytes        = (int)(sizeof(usb_setup_packet_t) + len);
+    t->callback         = desc_cb;
+    t->context          = (void *)(uintptr_t)itf;
+    if (usb_host_transfer_submit_control(s_client, t) != ESP_OK) {
+        usb_host_transfer_free(t);
+        return false;
+    }
+    return true;
+}
+
+/*
+ * The device's name and IDs, logged; then each HID interface's report
+ * descriptor asked for -- every one, not only the boot keyboard's,
+ * since an Fn key may be reported on another. The HID descriptor after
+ * each interface gives the length, and the country code, which nearly
+ * every keyboard leaves 0 ("not given").
+ */
+static void identify(usb_device_handle_t dev, const usb_config_desc_t *cfg)
+{
+    kbd_dev_t *r = NULL;
+    for (int i = 0; i < KBD_MAX; i++) if (!s_dev[i].used) { r = &s_dev[i]; break; }
+    if (!r) return;
+    memset(r, 0, sizeof(*r));
+
+    const usb_device_desc_t *dd = NULL;
+    if (usb_host_get_device_descriptor(dev, &dd) == ESP_OK && dd) {
+        r->vid = dd->idVendor;
+        r->pid = dd->idProduct;
+    }
+    usb_device_info_t info;
+    char mfr[32] = "", prod[48] = "";
+    if (usb_host_device_info(dev, &info) == ESP_OK) {
+        str_ascii(info.str_desc_manufacturer, mfr, sizeof mfr);
+        str_ascii(info.str_desc_product, prod, sizeof prod);
+    }
+    if (mfr[0] && prod[0]) snprintf(r->name, sizeof r->name, "%.31s %.31s", mfr, prod);
+    else if (mfr[0] || prod[0]) snprintf(r->name, sizeof r->name, "%s", mfr[0] ? mfr : prod);
+    else snprintf(r->name, sizeof r->name, "unnamed keyboard");
+    ESP_LOGI(TAG, "keyboard: %s (%04x:%04x)%s", r->name, r->vid, r->pid,
+             r->vid == 0x05AC ? ", Apple's vendor ID" : "");
+    r->used = true;
+    r->dev  = dev;
+
+    /* Walk the configuration: an interface, then its HID descriptor. */
+    const uint8_t *p = (const uint8_t *)cfg, *end = p + cfg->wTotalLength;
+    int itf = -1;
+    bool hid = false;
+    while (p + 2 <= end && p[0] >= 2 && p + p[0] <= end) {
+        if (p[1] == USB_B_DESCRIPTOR_TYPE_INTERFACE && p[0] >= 9) {
+            const usb_intf_desc_t *id = (const usb_intf_desc_t *)p;
+            hid = id->bAlternateSetting == 0 && id->bInterfaceClass == HID_CLASS;
+            itf = id->bInterfaceNumber;
+        } else if (p[1] == HID_DESC_HID && hid && p[0] >= 9 && p[6] == HID_DESC_REPORT) {
+            const uint16_t len = (uint16_t)(p[7] | (p[8] << 8));
+            ESP_LOGI(TAG, "itf %d: HID, country %u", itf, p[4]);
+            if (len && report_desc_request(dev, (uint8_t)itf, len)) r->reading++;
+            hid = false;
+        }
+        p += p[0];
+    }
+    if (r->reading == 0) dev_summary(r);
+}
+
 /* ---- open and close --------------------------------------------------- */
 
 static kbd_ctx_t *slot(void)
@@ -243,6 +401,7 @@ static void inspect(usb_device_handle_t dev)
         }
     }
     if (!any) usb_host_device_close(s_client, dev);
+    else identify(dev, cfg);
 }
 
 /* Once the URB is back: release, and close the device when its last
@@ -259,6 +418,10 @@ static void reap(void)
             usb_host_endpoint_flush(k->dev, k->xfer->bEndpointAddress);
             continue;
         }
+        /* A report descriptor still being read holds the device: its
+         * transfer comes back first, and frees itself (0025). */
+        const kbd_dev_t *rd = dev_rec(k->dev);
+        if (rd && rd->reading > 0) continue;
         /* Release every key it was holding, or a held key repeats for
          * ever on the editor's side. */
         for (int j = 0; j < 6; j++) if (k->prev[j] >= 0x04) post(k->prev[j], 0, false);
@@ -267,8 +430,12 @@ static void reap(void)
         usb_host_transfer_free(k->xfer);
         usb_host_interface_release(s_client, k->dev, k->itf);
         usb_device_handle_t dev = k->dev;
+        kbd_dev_t *r = dev_rec(dev);
         k->used = false;
-        if (!dev_in_use(dev)) usb_host_device_close(s_client, dev);
+        if (!dev_in_use(dev)) {
+            if (r) r->used = false;
+            usb_host_device_close(s_client, dev);
+        }
         ESP_LOGI(TAG, "keyboard gone (itf %u)", k->itf);
     }
 }
@@ -353,6 +520,14 @@ bool kbd_get(kbd_event_t *ev, uint32_t ticks)
 bool kbd_present(void)
 {
     for (int i = 0; i < KBD_MAX; i++) if (s_kbd[i].used && !s_kbd[i].gone) return true;
+    return false;
+}
+
+bool kbd_apple(void)
+{
+    for (int i = 0; i < KBD_MAX; i++) {
+        if (s_dev[i].used && dev_in_use(s_dev[i].dev) && (s_dev[i].fn || s_dev[i].globe)) return true;
+    }
     return false;
 }
 

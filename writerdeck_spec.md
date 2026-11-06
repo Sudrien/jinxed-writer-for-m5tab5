@@ -200,7 +200,8 @@ Touch is for this page, the file picker, and scrolling. The keyboard does everyt
 3. **SMTP/TLS from the standalone build,** including the time from Wi-Fi up to message sent, against the 45 s cap in section 3, and that a background send does not stall typing.
 4. **NVS encryption** is present and working in this build for the credentials, as it is for the Wi-Fi list.
 5. **SD behavior when the card is removed** mid-session: the editor keeps buffering and the log catches up when a card returns. Also verify mirror recovery by cutting power mid-append at random points and checking that one twin always survives and the other is repaired.
-6. **USB HID keyboard layouts:** at least US ANSI, with Ctrl, Windows-key and Command-key shortcuts all working alike.
+6. **Which keyboard** (0025): each one is logged when it comes or at boot -- `kbd: keyboard: <maker> <product> (vvvv:pppp)`, each HID interface's country code and report descriptor, then `kbd: ... Apple-only keys: fn globe` or `no Apple-only keys`. "Apple-only" is read from the report descriptors, not the vendor ID: the Fn key on Apple's vendor page (0x00FF, usage 0x03) or the globe key (Consumer 0x029D). `kbd_apple()` has the answer; nothing uses it yet. Confirm on an Apple keyboard and a PC one.
+7. **USB HID keyboard layouts:** at least US ANSI, with Ctrl, Windows-key and Command-key shortcuts all working alike.
 
 ## 9. Out of scope for now
 
@@ -217,4 +218,4 @@ On-device TeX typesetting, PDF export, note-mode hotkeys, a Wi-Fi AP or web UI, 
 - Dark mode, light mode
 - configurable font scale (current size is smallest, this is a retina display)
 - fake bold and italic & strikethrough for font, markdown basics
-- can apple keybords be detected form usb descriptor? tells which shortcut set to use
+- Apple keyboards: detected from their report descriptors (0025, section 8); with Ctrl, Windows and Command one modifier (0024), no shortcut set depends on it. Possible use: "Cmd" in the hints on an Apple keyboard.

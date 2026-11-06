@@ -66,6 +66,15 @@ bool kbd_get(kbd_event_t *ev, uint32_t ticks);
 bool kbd_present(void);
 
 /*
+ * Whether a keyboard open now names a key only Apple's have -- the Fn
+ * key on Apple's vendor page, or the globe key -- in its HID report
+ * descriptors (0025, hidrpt.h). False until they have been read, a
+ * moment after it comes. Each keyboard's name, IDs and finding are
+ * logged (INFO) when it is plugged in, or at boot.
+ */
+bool kbd_apple(void);
+
+/*
  * US ANSI: the character a usage types with these modifiers and caps
  * lock, or 0 for a key that types nothing (arrows, F-keys, modifiers).
  * Enter is '\n' and Tab '\t'; Backspace and Delete are 0 -- they are
