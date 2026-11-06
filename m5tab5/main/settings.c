@@ -390,7 +390,9 @@ static bool narrow(void) { return gfx_w() < 1000; }
 static int lib_lh(void) { return (GFX_GLYPH_H(SCALE) + 10) * (narrow() ? 2 : 1); }
 
 /* `s` in up to `max_lines` lines of `max_w`, broken between words by
- * gfx_wrap_line(); drawn from `y` when `draw`. The lines it took. */
+ * gfx_wrap_line(); drawn from `y` when `draw`. The lines it took.
+ * gfx_wrap_line() sets *next to NULL when `s` is done (gfx.h), not to
+ * its end: 0040, after a one-line status read through NULL. */
 static int wrapped(int x, int y, const char *s, int max_w, int max_lines, uint16_t c, bool draw)
 {
     int lines = 0;
@@ -402,10 +404,10 @@ static int wrapped(int x, int y, const char *s, int max_w, int max_lines, uint16
         memcpy(line, s, n);
         line[n] = '\0';
         /* The last line allowed takes the rest, cut with an ellipsis. */
-        if (lines == max_lines - 1 && *next) snprintf(line, sizeof(line), "%s", s);
+        if (lines == max_lines - 1 && next && *next) snprintf(line, sizeof(line), "%s", s);
         if (draw) gfx_draw_text(x, y + lines * LINE_H, line, SCALE, max_w, c);
         lines++;
-        if (next == s) break;
+        if (!next || next == s) break;
         s = next;
     }
     return lines;

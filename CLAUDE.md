@@ -243,3 +243,4 @@ worked. A tag move keeps that line.
 - 0037 Export: a footer -- the author if set, the export time, the build
 - 0038 Send: today's notes by email now, Cmd+Enter or a button on the settings page
 - 0039 Editor: undo and redo, indent and unindent, find; no go to line
+- 0040 Fix: wrapped text read through gfx_wrap_line()'s NULL at the end

@@ -1383,7 +1383,7 @@ static void spell_draw(const spell_view_t *v)
                 line[n] = '\0';
                 gfx_draw_text(MARGIN_X, hy, line, FOOT_SCALE, W - 2 * MARGIN_X, COL_TEXT);
                 hy += LEGEND_LH;
-                if (next == st) break;
+                if (!next || next == st) break;     /* NULL: done (gfx.h; 0040) */
                 st = next;
             }
         }
