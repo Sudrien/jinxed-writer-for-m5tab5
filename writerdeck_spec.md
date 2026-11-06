@@ -125,7 +125,7 @@ Which mode the device runs in is chosen on the **settings page** (section 7) and
 | GUI+Left / Right | Line start / end |
 | GUI+Up / Down | Document start / end |
 | GUI+Backspace | Delete the whole line |
-| GUI+= / GUI+- | Text larger / smaller (0022) |
+| GUI+= / GUI+-, or Ctrl | Text larger / smaller, number row or keypad (0022, 0023) |
 | GUI+, | Open the settings page |
 | F7, or GUI+; | Check spelling (above) |
 

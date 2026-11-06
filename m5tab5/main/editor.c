@@ -429,20 +429,23 @@ static bool key(uint8_t usage, uint8_t mods)
     layout();
     const int cl = cursor_line();
 
+    /* Text larger / smaller (0022), number row or keypad: GUI+= (GUI++)
+     * and GUI+-, and Ctrl as well (0023) -- a PC keyboard's zoom habit,
+     * as spec 5 takes Ctrl wherever GUI is for letters. */
+    if ((gui || ctrl) && (usage == KBD_EQUAL || usage == KBD_KP_PLUS ||
+                          usage == KBD_MINUS || usage == KBD_KP_MINUS)) {
+        const int up = usage == KBD_EQUAL || usage == KBD_KP_PLUS;
+        const int was = display_text_scale();
+        display_set_text_scale(was + (up ? 1 : -1));
+        ESP_LOGI(TAG, "text size %d -> %d", was, display_text_scale());
+        if (display_text_scale() == was) return false;
+        measure();                      /* the redraw rewraps and finds the cursor */
+        return true;
+    }
+
     /* GUI is the app modifier (spec section 5): Windows key or Command. */
     if (gui) {
         switch (usage) {
-        case KBD_EQUAL:                 /* GUI+= (and GUI++): text larger */
-        case KBD_KP_PLUS:
-        case KBD_MINUS:                 /* GUI+-: smaller (0022) */
-        case KBD_KP_MINUS: {
-            const int up = usage == KBD_EQUAL || usage == KBD_KP_PLUS;
-            const int was = display_text_scale();
-            display_set_text_scale(was + (up ? 1 : -1));
-            if (display_text_scale() == was) return false;
-            measure();                  /* the redraw rewraps and finds the cursor */
-            return true;
-        }
         case KBD_LEFT:      s_cur = s_ls[cl]; return true;
         case KBD_RIGHT:     s_cur = line_cursor_max(cl); return true;
         case KBD_UP:        s_cur = 0; return true;

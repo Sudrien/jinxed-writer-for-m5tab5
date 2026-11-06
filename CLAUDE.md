@@ -226,3 +226,4 @@ worked. A tag move keeps that line.
 - 0020 Docs: README, the spec's built-so-far line, esp_hosted's cap
 - 0021 Settings: Dark, Light, Green console and Orange console themes
 - 0022 Editor: text size 2-5, GUI+= / GUI+-, the footer and gear with it
+- 0023 Editor: Ctrl+= / Ctrl+- size the text too
