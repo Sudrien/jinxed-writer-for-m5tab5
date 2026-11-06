@@ -19,8 +19,8 @@
  * With no card, or a failed write, s_text simply runs ahead of s_base
  * and the next flush that lands carries everything since.
  *
- * Spelling (spell.h) is checked only when asked, F7 or Ctrl+semicolon (Command+ on an Apple keyboard):
- * the screen splits, the text above with the word marked, the word and
+ * Spelling (spell.h) is checked only when asked -- F7, or Command+;
+ * on an Apple keyboard: the screen splits, the text above with the word marked, the word and
  * what it might be below. A correction is an ordinary edit, but logged
  * on its own and marked as the checker's (DOCLOG_SRC_SYMSPELL): what is
  * pending is flushed before it and it is flushed straight after. If a
@@ -484,9 +484,9 @@ static uint32_t para_next_end(uint32_t p)
  * The keys follow the keyboard (0027, spec 5). On an Apple keyboard,
  * the Mac's: Command with the arrows for the line and the document,
  * Option for words and paragraphs, and Ctrl a shortcut for nothing. On
- * any other, Word's: Ctrl (or the Windows key) with the arrows for
- * words and paragraphs, Ctrl+Home / End for the document; Alt with the
- * arrows does words too.
+ * any other, Word's: Ctrl with the arrows for words and paragraphs,
+ * Ctrl+Home / End for the document. There the Windows key and Alt are
+ * shortcuts for nothing (0028), as Notepad++ leaves Alt+arrows alone.
  */
 static bool key(const kbd_event_t *ev)
 {
@@ -514,12 +514,15 @@ static bool key(const kbd_event_t *ev)
         return true;
     }
 
-    /* The whole visual line, and its newline if it has one: Command+
-     * Backspace on a Mac, Ctrl+Shift+Backspace or Ctrl+Shift+K on a PC
-     * (Ctrl+Backspace is a word there). */
-    if (cmd && ((apple && usage == KBD_BACKSPACE) ||
-                (!apple && shift && (usage == KBD_BACKSPACE || usage == KBD_K)))) {
+    /* The whole visual line, and its newline if it has one, on a PC:
+     * Notepad++'s Ctrl+L, or VS Code's Ctrl+Shift+K (0028). On a Mac,
+     * Command+Delete deletes to the line's start, as macOS does. */
+    if (!apple && cmd && (usage == KBD_L || (shift && usage == KBD_K))) {
         erase(s_ls[cl], line_next(cl));
+        return true;
+    }
+    if (apple && cmd && usage == KBD_BACKSPACE) {
+        erase(s_ls[cl], s_cur);
         return true;
     }
 
@@ -543,7 +546,7 @@ static bool key(const kbd_event_t *ev)
         default:            return false;
         }
     }
-    if (!apple && (cmd || alt)) {       /* Ctrl, the Windows key, Alt */
+    if (!apple && cmd) {                /* Ctrl */
         switch (usage) {
         case KBD_LEFT:      s_cur = word_back(s_cur); return true;
         case KBD_RIGHT:     s_cur = word_next_start(s_cur); return true;
@@ -556,9 +559,10 @@ static bool key(const kbd_event_t *ev)
         default:            return false;
         }
     }
-    /* Ctrl on an Apple keyboard, and anything held with Command: no
-     * shortcut, and it types nothing. */
-    if (mods & (KBD_MOD_CTRL | KBD_MOD_GUI)) return false;
+    /* Ctrl on an Apple keyboard, the Windows key and Alt on a PC one, and
+     * anything else held with Command or Ctrl: no shortcut, no movement,
+     * and it types nothing. */
+    if (mods & (KBD_MOD_CTRL | KBD_MOD_GUI | KBD_MOD_ALT)) return false;
 
     switch (usage) {
     case KBD_CAPSLOCK:  s_caps = !s_caps; return true;
@@ -942,7 +946,7 @@ static void spell_view(void)
             continue;
         }
 
-        const bool gui = ev.cmd;
+        const bool gui = ev.cmd && ev.apple;     /* Command+; closes; F7 on a PC (0028) */
         const bool plain = (ev.mods & (KBD_MOD_GUI | KBD_MOD_CTRL | KBD_MOD_ALT)) == 0;
         int pick = -1;
         bool next = false;
@@ -1066,7 +1070,7 @@ void editor_run(void)
         if (kbd_get(&ev, wait)) {
             if (ev.down && ev.usage == KBD_COMMA && ev.cmd) {
                 open_settings = true;       /* spec 7: from the keyboard too */
-            } else if (ev.down && (ev.usage == KBD_F7 || (ev.usage == KBD_SEMICOLON && ev.cmd))) {
+            } else if (ev.down && (ev.usage == KBD_F7 || (ev.usage == KBD_SEMICOLON && ev.cmd && ev.apple))) {
                 open_spell = true;          /* spec 5: Word's F7, the Mac's Cmd+; */
             } else if (ev.down) {
                 dirty = key(&ev);

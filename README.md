@@ -11,14 +11,13 @@ Not ready for human consumption yet. `writerdeck_spec.md` is the design;
 
 - **Writing.** One file a day, `jinxed/YYYY-MM-DD.md` on the card, opened
   at the end. The keys are in the spec, section 5:
-  Word's on a PC keyboard (Ctrl, or the Windows key), the Mac's on an
-  Apple one (Command and Option). Below, Ctrl is Command on an Apple
-  keyboard.
+  Windows' on a PC keyboard (Ctrl; the Windows key does nothing), the
+  Mac's on an Apple one (Command and Option).
 - **Nothing lost.** The document is a log of every edit, written twice
   (`.YYYY-MM-DD.md.h0` and `.h1`) and recovered from whichever twin is
   longer after a power cut; the `.md` is regenerated from it. Each edit
   says whether you made it or the spelling check did.
-- **Spelling, on demand.** F7 or Ctrl+; walks the document from the cursor:
+- **Spelling, on demand.** F7 (or Command+; on an Apple keyboard) walks the document from the cursor:
   1-9 or Enter take a suggestion, E types the word yourself, A adds it to
   `jinxed/spell/words.txt`, I ignores it until power-off. No marks while
   you type.
@@ -27,9 +26,9 @@ Not ready for human consumption yet. `writerdeck_spec.md` is the design;
   comes from
   [jinxed-writer-spellcheck-dictionaries](https://github.com/Sudrien/jinxed-writer-spellcheck-dictionaries)
   over Wi-Fi, resumes where it stopped, and is checked before it is used.
-- **Settings** (the gear, or Ctrl+,): the email account, a test email,
+- **Settings** (the gear, Ctrl+, or Command+,): the email account, a test email,
   which way up the screen is, the colours, the text size (also Ctrl+=
-  and Ctrl+- while writing), all kept across power-offs; and the library
+  and Ctrl+-, or Command, while writing), all kept across power-offs; and the library
   versions and licences.
 
 ## Not yet

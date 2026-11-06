@@ -82,6 +82,7 @@ typedef struct {
     in_kind_t kind;
     uint8_t   usage, mods;      /* IN_KEY */
     bool      cmd;              /* the shortcut modifier, as kbd.h has it (0027) */
+    bool      apple;
     int       x, y;             /* IN_TAP: where it went down */
     int       dy;               /* IN_DRAG: moved since the last poll */
 } input_t;
@@ -102,7 +103,7 @@ static input_t input_poll(void)
     input_t in = { .kind = IN_NONE };
     kbd_event_t ev;
     if (kbd_get(&ev, pdMS_TO_TICKS(POLL_MS))) {
-        if (ev.down) { in.kind = IN_KEY; in.usage = ev.usage; in.mods = ev.mods; in.cmd = ev.cmd; }
+        if (ev.down) { in.kind = IN_KEY; in.usage = ev.usage; in.mods = ev.mods; in.cmd = ev.cmd; in.apple = ev.apple; }
         return in;
     }
     int x, y;
@@ -484,8 +485,10 @@ void settings_page(void)
             switch (in.usage) {
             case KBD_ESCAPE:   goto out;
             case KBD_COMMA:    if (gui) goto out; break;
-            case KBD_UP:       want = gui ? 0 : scroll - KEY_STEP; break;
-            case KBD_DOWN:     want = gui ? max_scroll(&p) : scroll + KEY_STEP; break;
+            /* The top and bottom: Command+Up / Down on a Mac; on a PC,
+             * Ctrl+Home / End, as Home / End already are (0028). */
+            case KBD_UP:       want = gui && in.apple ? 0 : scroll - KEY_STEP; break;
+            case KBD_DOWN:     want = gui && in.apple ? max_scroll(&p) : scroll + KEY_STEP; break;
             case KBD_PAGEUP:   want = scroll - (view - LINE_H); break;
             case KBD_PAGEDOWN: want = scroll + (view - LINE_H); break;
             case KBD_HOME:     want = 0; break;

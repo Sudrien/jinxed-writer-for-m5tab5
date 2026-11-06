@@ -231,3 +231,4 @@ worked. A tag move keeps that line.
 - 0025 Keyboard: logged when it comes, and whether it has Apple-only keys
 - 0026 Keyboard: a maker's name the product repeats is logged once
 - 0027 Keys: Mac habits on an Apple keyboard, Word's on any other; words and paragraphs
+- 0028 Keys: the Windows key and Alt do nothing; Ctrl+L deletes a line; F7 only on Windows

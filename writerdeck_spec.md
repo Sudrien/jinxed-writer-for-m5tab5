@@ -103,59 +103,68 @@ Which mode the device runs in is chosen on the **settings page** (section 7) and
 - **Highlighting has three modes:** none, markdown with `$math$`, TeX. Default for a new note is **none**. The mode comes from the document's extension when the log is created (`.md`, `.tex`, otherwise none), is stored in the log header, and is changeable from the settings page. **There are no hotkeys for switching modes yet.** Leave a clear hook for adding one later.
 - **Highlighter:** line-based tokenizer on visible lines only, with small carried state for open `$$` blocks and code fences, and a bounded look-back for multi-line constructs. Muted palette: 2-3 dim tones (structure, math/commands, comments).
 - **Math rules (Pandoc style):** an opening `$` must be followed by a non-space; a closing `$` must be preceded by a non-space and not followed by a digit; `\$` is a literal dollar. Inline `$...$` never crosses a line. An unmatched `$` is plain text. Backtick code spans and fences win over math.
-- **Spelling is checked on demand, never as you type:** no marks in the text. F7 (Word), or Ctrl+; on a PC keyboard and Command+; on an Apple one (the Mac's "check document now") splits the screen: the text in the top half with the word marked, the word and up to five suggestions in the bottom half. The check starts at the word at the cursor and goes round the document to it once. A change is an ordinary edit, but logged on its own and attributed to the checker (section 4); if it cannot be flushed apart from the user's edits around it (no card), the combined changeset is the user's. A Capitalised word gets a Capitalised suggestion.
+- **Spelling is checked on demand, never as you type:** no marks in the text. F7 (Word), and Command+; on an Apple keyboard (the Mac's "check document now") splits the screen: the text in the top half with the word marked, the word and up to five suggestions in the bottom half. The check starts at the word at the cursor and goes round the document to it once. A change is an ordinary edit, but logged on its own and attributed to the checker (section 4); if it cannot be flushed apart from the user's edits around it (no card), the combined changeset is the user's. A Capitalised word gets a Capitalised suggestion.
 - **Not checked, as not prose:** single letters, words in capitals (acronyms), words with a capital inside (identifiers), and any word in a run of non-space characters holding a digit, `/`, `\`, `@`, `_`, a backtick, `<`, `>` or `=` (paths, addresses, code, TeX). A contraction is right when its stem is (*don't*, *isn't*, *we'll*).
 - **The checker is SymSpell** (edit distance 2, prefix 7, ranked by distance then frequency), written for this board. symspell-c99 itself is not linked: it allocates two 128 MB arenas when created and holds about 45 MB at distance 2, against 32 MB of PSRAM. Instead the index is built once on a computer by `m5tab5/tools/spelldict.c` from a word-frequency list, and lives on the card as `jinxed/spell/english.sym`. From symspell-c99's 86,060-word `dictionaries/dictionary.txt` that is 15 MB on the card; its word list, 2 MB, is read into PSRAM at the first check and stays. The delete index stays on the card, read at most ~60 small pieces per misspelling, the volume leased for each one. Checking that a word is right touches only RAM.
 - **No dictionary on the card:** the view says so and offers **D** to download it. The send task (section 6) brings Wi-Fi up as for a send and hands the download to feckless's `feckless_fetch` (feckless 9003): `english.sym` from `Sudrien/jinxed-writer-spellcheck-dictionaries` at a pinned commit (`SPELL_DICT_URL` in `spell.h`, a raw.githubusercontent.com URL), https only, TLS checked against IDF's CA bundle, up to three connections in 1 MB stripes. It is written to `english.sym.part`, with a map of what has arrived in `english.sym.part.id`; when whole it is checked (header, and its sections adding up to the length) and renamed into place, and the check starts. A failure keeps the part file, and **D** again carries on from it; so does a download cut off at ten minutes. A file that fails the check is removed. A dictionary already there is never touched until the new one has passed. **The volume is held for the whole download**, the one exception to section 1's lease: the part file stays open throughout, and an unmount with a file open would be a use-after-free inside FatFs, so a pulled card waits for the download to fail and let go. Any key closes the view and the download goes on; a new dictionary is a new commit there, named in the firmware.
 - **Credit** for the algorithm, its C port and the dictionary's sources is in `CREDITS.md`; the dictionary's own notices travel with it, in its repository.
 - **The user's words** are `jinxed/spell/words.txt`, one per line, editable by hand. "Ignore all" lasts until power-off.
 
-**Shortcuts.** They follow the keyboard (0027): **Mac habits on an Apple keyboard, Word's on any other.** An Apple keyboard is one whose HID report descriptors name an Apple-only key (0025, section 8). The **Windows key** and **Command** send the same HID modifier (GUI), so which one it is comes from the keyboard, not the key. Below, **Cmd** is the shortcut modifier: **Ctrl** on a PC keyboard, where the Windows key does the same as Ctrl; **Command** on an Apple keyboard, where Ctrl is a shortcut for nothing. **Alt** is Option on a Mac keyboard (the same HID modifier). Do not assign any mode-switch hotkey.
+**Shortcuts.** They follow the keyboard (0027, 0028): **the Mac's on an Apple keyboard, Windows' on any other** -- Word's and Notepad++'s, VS Code's where neither has one. An Apple keyboard is one whose HID report descriptors name an Apple-only key (0025, section 8); until they are read, a moment after it is plugged in, a keyboard is a Windows one. **Cmd** below is the shortcut modifier: **Ctrl** on a Windows keyboard, **Command** on an Apple one. The **Windows key** is a shortcut for nothing: on Windows it belongs to the system. On an Apple keyboard **Ctrl** is a shortcut for nothing: this is a text area, not a macOS text field, and its Emacs keys are not carried over. **Alt** is Option on a Mac keyboard (the same HID modifier); on a Windows keyboard Alt+arrows do nothing, as in Notepad++, whose Alt+Shift+arrows (column select) stay free. Do not assign any mode-switch hotkey.
 
-*In the editor, today:*
+*Built* (✓) *and planned:*
 
-| Does | PC keyboard (Ctrl, or the Windows key) | Apple keyboard |
-|---|---|---|
-| Move; Up/Down keep their column | Arrows | Arrows |
-| Line start / end | Home / End | Command+Left / Right, or Home / End |
-| Document start / end | Ctrl+Home / End | Command+Up / Down |
-| Previous / next word | Ctrl+Left / Right (to a word's start), or Alt | Option+Left / Right (to a word's end) |
-| Previous / next paragraph | Ctrl+Up / Down (to a paragraph's start) | Option+Up / Down (to a paragraph's end) |
-| Move one screenful | PageUp / PageDown | PageUp / PageDown |
-| Delete before / after the cursor | Backspace / Delete | Backspace / Delete |
-| Delete the word before / after | Ctrl+Backspace / Delete | Option+Backspace / Delete |
-| Delete the whole line | Ctrl+Shift+Backspace, or Ctrl+Shift+K | Command+Backspace |
-| Insert four spaces | Tab | Tab |
-| Toggle caps (shown in the status line) | Caps Lock | Caps Lock |
-| Text larger / smaller, number row or keypad (0022) | Ctrl+= / Ctrl+- | Command+= / Command+- |
-| Open the settings page | Ctrl+, | Command+, |
-| Check spelling (above) | F7, or Ctrl+; | F7, or Command+; |
+| Does | Windows keyboard | Apple keyboard | |
+|---|---|---|---|
+| **Moving** | | | |
+| Character left / right | Left / Right | Left / Right | ✓ |
+| Line up / down (keeps the column) | Up / Down | Up / Down | ✓ |
+| Word back / forward | Ctrl+Left / Right (to a word's start) | Option+Left / Right (to a word's end) | ✓ |
+| Paragraph back / forward | Ctrl+Up / Down (to a paragraph's start) | Option+Up / Down (to a paragraph's end) | ✓ |
+| Line start / end | Home / End | Command+Left / Right, or Home / End | ✓ |
+| Document start / end | Ctrl+Home / End | Command+Up / Down | ✓ |
+| Screen up / down | PageUp / PageDown | PageUp / PageDown | ✓ |
+| **Deleting** | | | |
+| Character before / after | Backspace / Delete | Delete / Fn+Delete | ✓ |
+| Word before / after | Ctrl+Backspace / Delete | Option+Delete / Option+Fn+Delete | ✓ |
+| To the line's start | -- | Command+Delete | ✓ |
+| The whole line | Ctrl+L (Notepad++), or Ctrl+Shift+K (VS Code) | -- | ✓ |
+| **Typing** | | | |
+| Four spaces / remove up to four leading spaces | Tab / Shift+Tab | Tab / Shift+Tab | ✓ / planned |
+| Caps (shown in the status line) | Caps Lock | Caps Lock | ✓ |
+| **Selecting** (needs a selection) | | | |
+| Extend by character / line | Shift+arrows | Shift+arrows | planned |
+| Extend by word / paragraph | Ctrl+Shift+arrows | Option+Shift+arrows | planned |
+| Extend to the line's start / end | Shift+Home / End | Command+Shift+Left / Right | planned |
+| Extend to the document's start / end | Ctrl+Shift+Home / End | Command+Shift+Up / Down | planned |
+| Select all | Ctrl+A | Command+A | planned |
+| **Editing** | | | |
+| Copy / cut / paste | Ctrl+C / X / V | Command+C / X / V | planned |
+| Undo | Ctrl+Z | Command+Z | planned |
+| Redo | Ctrl+Y, or Ctrl+Shift+Z | Command+Shift+Z | planned |
+| **The document and the app** | | | |
+| Check spelling (above) | F7 | Command+;, or F7 | ✓ |
+| Settings | Ctrl+, (VS Code's) | Command+, | ✓ |
+| Text larger / smaller, number row or keypad (0022) | Ctrl+= / Ctrl+- | Command+= / Command+- | ✓ |
+| Save now (flush the log, then export) | Ctrl+S | Command+S | planned |
+| Find; next / previous | Ctrl+F; F3 / Shift+F3 | Command+F; Command+G / Command+Shift+G | planned |
+| Go to line | Ctrl+G | Command+L | planned |
+| Send now (file mode's manual send) | Ctrl+Enter | Command+Enter | planned |
 
-Held keys repeat. Chords with Cmd, Ctrl or Alt type nothing. A keyboard counts as a PC one for the moment after it is plugged in, until its descriptors have been read.
+Held keys repeat. A chord with Ctrl, Command, Alt or the Windows key types nothing.
 
-*On the settings page, today:* Up/Down scroll; PageUp/PageDown scroll a screen; Home/End and Cmd+Up/Down jump to the top and bottom; Enter opens the email form; Cmd+T sends a test email; Cmd+R turns the screen a quarter clockwise; Esc or Cmd+, closes the page. In the email form: Tab / Shift+Tab or Up / Down move between fields, Enter saves, Esc cancels.
+*On the settings page, today:* Up/Down scroll; PageUp/PageDown scroll a screen; Home/End jump to the top and bottom, and so do Ctrl+Home/End on a Windows keyboard and Command+Up/Down on an Apple one; Enter opens the email form; Cmd+T sends a test email; Cmd+R turns the screen a quarter clockwise; Esc or Cmd+, closes the page. In the email form: Tab / Shift+Tab or Up / Down move between fields, Enter saves, Esc cancels.
 
-*In the spelling view, today:* 1-9 change the word to that suggestion; Up/Down choose one and Enter takes it; **E** opens a field with the word in it, to type it as it should be when no suggestion is (letters, Backspace, Delete, Left/Right, Home/End, Caps Lock; Enter changes the word to what is typed, Esc goes back to the suggestions) -- a word typed is the user's change in the log, not the checker's; Tab, Space or Right skip the word; I ignores it everywhere until power-off; A adds it to the user's words; Esc, F7 or Cmd+; close. When nothing is left, any key closes.
-
-*Planned, not yet implemented*, modelled on MS Word and on the Mac text-field habits. Cmd as above: Ctrl on a PC keyboard, Command on an Apple one.
-
-| Does | Keys |
-|---|---|
-| Extend the selection | Shift with any movement above (by character, word, line, document) |
-| Select all, copy, cut, paste | Cmd+A / C / X / V |
-| Undo / redo | Cmd+Z / Cmd+Shift+Z; on a PC, Ctrl+Y also redoes |
-| Save now (flush the log, then export) | Cmd+S |
-| Find, next, previous | Cmd+F, then F3 / Shift+F3 (Cmd+G / Cmd+Shift+G on a Mac) |
-| Go to line | Ctrl+G on a PC; Command+L on a Mac |
-| Send now (file mode's manual send) | Cmd+Enter |
-| Remove up to four leading spaces | Shift+Tab |
+*In the spelling view, today:* 1-9 change the word to that suggestion; Up/Down choose one and Enter takes it; **E** opens a field with the word in it, to type it as it should be when no suggestion is (letters, Backspace, Delete, Left/Right, Home/End, Caps Lock; Enter changes the word to what is typed, Esc goes back to the suggestions) -- a word typed is the user's change in the log, not the checker's; Tab, Space or Right skip the word; I ignores it everywhere until power-off; A adds it to the user's words; Esc or F7 close, and Command+; on an Apple keyboard. When nothing is left, any key closes.
 
 *Decisions recorded.*
-- **The keyboard decides the habits** (0027). A PC keyboard gets Word's: Ctrl (the Windows key the same, 0024) for words, paragraphs and the document's ends, Home / End for the line. An Apple keyboard gets the Mac's: Command for the line and the document, Option for words and paragraphs, Ctrl for nothing. 0024 had made all three keys one with Mac arrows on every keyboard, because the Windows key and Command could not be told apart; the keyboard can (0025), so neither set is given up.
+- **The keyboard decides the habits** (0027, 0028). A Windows keyboard gets Windows': Ctrl for words, paragraphs and the document's ends, Home / End for the line; the Windows key and Alt do nothing. An Apple keyboard gets the Mac's: Command for the line and the document, Option for words and paragraphs, Ctrl for nothing. 0024 had made Ctrl, the Windows key and Command one, with Mac arrows on every keyboard, because the Windows key and Command send the same HID modifier; the keyboard tells them apart (0025), so that is gone.
+- **Where Windows has no standard key**, Notepad++'s comes first, then VS Code's: Ctrl+L and Ctrl+Shift+K both delete the line (Notepad++ uses Ctrl+Shift+K for a block comment, which a plain-text editor does not have). Notepad++'s Ctrl+Up / Down scroll without moving the cursor; Word's paragraph moves were kept for them.
+- **Ctrl+; is not the spelling key on Windows** (0028): Word has none, and it is Excel's insert-the-date. F7 is.
 - **Undo never removes anything from the log** (section 4). It appends a new changeset that reverses the last one, so every word typed stays in the history.
 - **Selection comes first.** Copy, cut, paste and the Shift movements all rest on the editor having a selection, and a RAM clipboard. Until then those rows stay planned.
 - **Not carried over from Word:** bold, italic, underline, alignment, styles, page breaks, tables, print. The text is plain.
-- Emacs-style Ctrl+A / Ctrl+E (line start / end on a Mac) are optional and not planned; on an Apple keyboard Ctrl is free for them.
+- **No Emacs keys on an Apple keyboard** (Ctrl+A / E / K): macOS gives them to its text fields; this is a text area, and Command covers the same ground (0028).
 
 ## 6. Email
 
@@ -184,7 +193,7 @@ Reached from a **gear icon** (touch) and also from the keyboard. At minimum:
 - Daily-mode flush interval (default 1 h; 2 h backoff cap is fixed)
 - Highlight mode for the current document (none / markdown+math / TeX)
 - **Which way up** (0019): Landscape, Landscape flipped, Portrait, Portrait flipped -- four buttons, the current one lit; a tap turns the screen and the touch at once, and the angle is kept in NVS (namespace `jinxed`) and applied from the first frame of the next boot. Landscape out of the box. The editor re-measures its columns and rows on leaving the page. Narrow, the page and the spelling pane wrap what does not fit: the spelling legend breaks between its keys, the status lines take two lines, a library is two lines (its name, then checkout and licence), and the typing field scrolls with its cursor.
-- **Text size** (0022): the editor's text, ark12 at 2 to 5 times (24 to 60 px), 3 out of the box -- a row of four buttons, or Cmd+= / Cmd+- in the editor (Ctrl on a PC keyboard, Command on an Apple one); kept in NVS (`jinxed`, `scale`). The editor and the spelling view take it, and the status line, the gear and the spelling view's small print go one step smaller (never under 2, and no larger than the status line fits across: at most 3 landscape, 2 portrait). The settings page keeps its own sizes.
+- **Text size** (0022): the editor's text, ark12 at 2 to 5 times (24 to 60 px), 3 out of the box -- a row of four buttons, or Ctrl+= / Ctrl+- in the editor (Command on an Apple keyboard); kept in NVS (`jinxed`, `scale`). The editor and the spelling view take it, and the status line, the gear and the spelling view's small print go one step smaller (never under 2, and no larger than the status line fits across: at most 3 landscape, 2 portrait). The settings page keeps its own sizes.
 - **Theme** (0021): Dark (the default, section 5's dim low-contrast one), Light, Green console, Orange console -- four buttons under the rotation, the current one lit; kept in NVS (namespace `jinxed`, key `theme`) and applied from the first frame of the next boot. The editor, the spelling view, the settings page and the email form all follow it.
 - Library versions: render the table generated by `feckless_libversions` (`libversions.h` / `libversions.tsv`) with versions and licences, as the library provides it. Drawing it is the app's job.
 - Set the clock (the RTC is never synced; see section 4)
@@ -200,7 +209,7 @@ Touch is for this page, the file picker, and scrolling. The keyboard does everyt
 4. **NVS encryption** is present and working in this build for the credentials, as it is for the Wi-Fi list.
 5. **SD behavior when the card is removed** mid-session: the editor keeps buffering and the log catches up when a card returns. Also verify mirror recovery by cutting power mid-append at random points and checking that one twin always survives and the other is repaired.
 6. **Which keyboard** (0025): each one is logged when it comes or at boot -- `kbd: keyboard: <maker> <product> (vvvv:pppp)`, each HID interface's country code and report descriptor, then `kbd: ... Apple-only keys: fn globe` or `no Apple-only keys`. "Apple-only" is read from the report descriptors, not the vendor ID: the Fn key on Apple's vendor page (0x00FF, usage 0x03) or the globe key (Consumer 0x029D). Each key event carries it (`apple`, and `cmd`, the shortcut modifier for that keyboard, 0027); `kbd_apple()` has it for the hints. *On a Tab5,* a PC keyboard (04b4:0510, two HID interfaces, 65- and 170-byte descriptors): `no Apple-only keys`. Still to confirm on an Apple keyboard.
-7. **USB HID keyboard layouts:** at least US ANSI, with a PC keyboard's Ctrl and Windows-key shortcuts and an Apple keyboard's Command ones (0027).
+7. **USB HID keyboard layouts:** at least US ANSI, with a Windows keyboard's Ctrl shortcuts and an Apple keyboard's Command ones (0027, 0028).
 
 ## 9. Out of scope for now
 

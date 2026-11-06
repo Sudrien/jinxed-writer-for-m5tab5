@@ -83,13 +83,13 @@ static kbd_dev_t *dev_rec(usb_device_handle_t dev);
 
 static void post(const kbd_ctx_t *k, uint8_t usage, uint8_t mods, bool down)
 {
-    /* 0027: Command is the shortcut key on an Apple keyboard, Ctrl (or
-     * the Windows key) on any other. */
+    /* 0027: Command is the shortcut key on an Apple keyboard, Ctrl on
+     * any other; the Windows key is nobody's (0028). */
     const kbd_dev_t *r = dev_rec(k->dev);
     const bool apple = r && (r->fn || r->globe);
     const kbd_event_t ev = {
         .usage = usage, .mods = mods, .down = down, .apple = apple,
-        .cmd = (mods & (apple ? KBD_MOD_GUI : KBD_MOD_CMD)) != 0,
+        .cmd = (mods & (apple ? KBD_MOD_GUI : KBD_MOD_CTRL)) != 0,
     };
     if (xQueueSend(s_queue, &ev, 0) != pdTRUE) {
         ESP_LOGW(TAG, "queue full; key 0x%02X dropped", usage);

@@ -2,9 +2,10 @@
  * settings.h -- the gear, and the full-window settings page behind it.
  * Spec section 7.
  *
- * The page scrolls: drag it, or Up/Down, PageUp/PageDown, Cmd+Up/Down
- * (Cmd: Command on an Apple keyboard, else Ctrl; kbd.h). Escape,
- * Cmd+comma or the Back button close it. Sections so far:
+ * The page scrolls: drag it, or Up/Down, PageUp/PageDown, Home/End,
+ * and Command+Up/Down on an Apple keyboard. Escape, Cmd+comma or the
+ * Back button close it (Cmd: Command on an Apple keyboard, Ctrl on any
+ * other; kbd.h). Sections so far:
  *
  *   Email (SMTP)   the outgoing account, feckless_mail's mailcfg in NVS;
  *                  Edit opens mailform full-window, typed on the USB
