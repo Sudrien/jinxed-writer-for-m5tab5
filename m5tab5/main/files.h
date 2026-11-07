@@ -15,6 +15,9 @@
  *   Delete, or Cmd+Backspace (Finder's)            to the trash, asked first
  *   Esc, or Cmd+O                                  back to the note
  *
+ * Cmd+N in the editor (0045) goes straight to the new note's name, over
+ * the list; Esc there goes back to the note, not to the list.
+ *
  * The editor closes its log before the page and opens one after, so the
  * page may rename or trash any note, the open one too.
  *
@@ -49,9 +52,10 @@ typedef enum {
 } files_result_t;
 
 /*
- * The page, until a note is opened or it is closed. `cur` is the open
+ * The page, until a note is opened or it is closed. 0045: `new_note`
+ * asks for a new note's name first, and leaves on Esc. `cur` is the open
  * note's name on the way in (FILES_NAME_MAX + 1 bytes or more, cap
  * `n`), and on the way out the note to open or go back to. Leaves the
  * screen for the caller to redraw.
  */
-files_result_t files_page(char *cur, size_t n, bool apple);
+files_result_t files_page(char *cur, size_t n, bool apple, bool new_note);

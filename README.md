@@ -33,7 +33,7 @@ Not ready for human consumption yet. `writerdeck_spec.md` is the design;
   comes from
   [jinxed-writer-spellcheck-dictionaries](https://github.com/Sudrien/jinxed-writer-spellcheck-dictionaries)
   over Wi-Fi, resumes where it stopped, and is checked before it is used.
-- **Notes** (Ctrl+O, Command+O): every note in `jinxed/`, newest first, to open,
+- **Notes** (Ctrl+O, Command+O; Ctrl+N or Command+N for a new one): every note in `jinxed/`, newest first, to open,
   make, rename or put in `jinxed/trash/`. Settings, Mode: Daily opens
   today's at power-on, File the one last opened.
 - **Markdown**, drawn as you type: bold, italic, strikethrough, `code`

@@ -152,6 +152,7 @@ Which mode the device runs in is chosen on the **settings page** (section 7) and
 | Check spelling (above) | F7 | Command+;, or F7 | ✓ |
 | Settings | Ctrl+, (VS Code's) | Command+, | ✓ |
 | The notes: open, new, rename, delete (0044) | Ctrl+O | Command+O | ✓ |
+| A new note, named (0045: from the editor too; Esc goes back to the note, a name taken goes to the list) | Ctrl+N | Command+N | ✓ |
 | Text larger / smaller, number row or keypad (0022) | Ctrl+= / Ctrl+- | Command+= / Command+- | ✓ |
 | Save now (flush the log, then export) | Ctrl+S | Command+S | ✓ |
 | Find; next / previous (0039) | Ctrl+F; F3 / Shift+F3 | Command+F; Command+G / Command+Shift+G, or F3 / Shift+F3 | ✓ |

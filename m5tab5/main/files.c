@@ -270,6 +270,17 @@ static bool ask_yes(const char *q, const char *cur)
     return in.key && (in.ev.usage == KBD_Y || in.ev.usage == KBD_ENTER || in.ev.usage == KBD_KP_ENTER);
 }
 
+/* A new note's name, asked over the list: true with it in `cur`. Its
+ * complaint, if the name is taken, in `*note`. */
+static bool new_name(char *cur, size_t n, const char **note)
+{
+    char name[FILES_NAME_MAX + 1];
+    if (!ask_name("New note:", "", name, sizeof name, cur)) return false;
+    if (doclog_exists(name)) { *note = "There is already a note by that name."; return false; }
+    snprintf(cur, n, "%s", name);
+    return true;               /* doclog_open() makes it */
+}
+
 /* ---- the page ----------------------------------------------------------------- */
 
 static const char *err_text(esp_err_t e)
@@ -301,7 +312,7 @@ static int chooser_key_for(const kbd_event_t *e)
     return c > ' ' && c <= '~' ? c : 0;
 }
 
-files_result_t files_page(char *cur, size_t n, bool apple)
+files_result_t files_page(char *cur, size_t n, bool apple, bool new_note)
 {
     setup(apple);
     chooser_begin(&s_ch, NULL);
@@ -310,6 +321,11 @@ files_result_t files_page(char *cur, size_t n, bool apple)
     files_result_t res = FILES_STAY;
     s_down = false;
     touch_swallow();
+
+    if (new_note) {             /* 0045: Cmd+N from the editor */
+        if (new_name(cur, n, &note)) res = FILES_OPEN;
+        if (res == FILES_OPEN || !note) goto out;
+    }
 
     for (;;) {
         draw(cur, note, apple);
@@ -330,11 +346,8 @@ files_result_t files_page(char *cur, size_t n, bool apple)
             const storage_ent_t *sel = chooser_sel(&s_ch);
             if (e->usage == KBD_ESCAPE || (e->cmd && e->usage == KBD_O)) break;
             if (e->cmd && e->usage == KBD_N) {
-                char name[FILES_NAME_MAX + 1];
-                if (!ask_name("New note:", "", name, sizeof name, cur)) continue;
-                if (doclog_exists(name)) { note = "There is already a note by that name."; continue; }
-                snprintf(cur, n, "%s", name);
-                res = FILES_OPEN;           /* doclog_open() makes it */
+                if (!new_name(cur, n, &note)) continue;
+                res = FILES_OPEN;
                 break;
             }
             if (sel && (e->usage == KBD_F2 || (e->cmd && e->usage == KBD_R))) {
@@ -374,6 +387,7 @@ files_result_t files_page(char *cur, size_t n, bool apple)
         }
         if (r == CHOOSER_CANCEL) break;
     }
+out:
     chooser_done(&s_ch);
     s_down = false;
     touch_swallow();

@@ -661,7 +661,7 @@ static void doc_reset(const char *name)
     if (files_mode() == FILES_FILE) files_set_last(s_name);
 }
 
-static void open_files(bool apple)
+static void open_files(bool apple, bool new_note)
 {
     save_tick(true);
     export_tick(true);
@@ -673,7 +673,7 @@ static void open_files(bool apple)
     char cur[FILES_NAME_MAX + 1];
     snprintf(cur, sizeof cur, "%s", s_name);
     doclog_close();
-    const files_result_t r = files_page(cur, sizeof cur, apple);
+    const files_result_t r = files_page(cur, sizeof cur, apple, new_note);
     if (r == FILES_STAY && !strcmp(cur, s_name)) {
         /* the same note: open its log again, and keep the cursor and
          * the undo history if it is the text we have */
@@ -1638,7 +1638,7 @@ static const sheet_row_t k_keys_pc[] = {
     { "Ctrl+S; Ctrl+Enter",      "save now; email notes" },
     { "F7",                      "check spelling" },
     { "Ctrl+= / Ctrl+-",         "text larger / smaller" },
-    { "Ctrl+,; Ctrl+O",          "settings; notes" },
+    { "Ctrl+,; Ctrl+O; Ctrl+N",  "settings; notes; new note" },
     { "F1 / F11 / F12",          "keys / bare page / stats" },
 };
 static const sheet_row_t k_keys_apple[] = {
@@ -1657,7 +1657,7 @@ static const sheet_row_t k_keys_apple[] = {
     { "Command+S; Command+Enter", "save now; email notes" },
     { "Command+; or F7",         "check spelling" },
     { "Command+= / Command+-",   "text larger / smaller" },
-    { "Command+,; Command+O",    "settings; notes" },
+    { "Command+, / O / N",       "settings / notes / new note" },
     { "F1 / F11 / F12",          "keys / bare page / stats" },
 };
 #define SHEET_SCALE     (2)
@@ -1982,7 +1982,12 @@ void editor_run(void)
                 dirty = true;
             } else if (ev.down && ev.cmd && ev.usage == KBD_O) {
                 held = 0;               /* 0044: the notes */
-                open_files(ev.apple);
+                open_files(ev.apple, false);
+                touch_down = false;
+                dirty = true;
+            } else if (ev.down && ev.cmd && ev.usage == KBD_N) {
+                held = 0;               /* 0045: a new note, named */
+                open_files(ev.apple, true);
                 touch_down = false;
                 dirty = true;
             } else if (ev.down && ev.usage == KBD_COMMA && ev.cmd) {
