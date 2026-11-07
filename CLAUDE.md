@@ -253,3 +253,4 @@ worked. A tag move keeps that line.
 - 0047 Status line: the open note's name; the notes page's footer back to keys
 - 0048 Clock: the system clock from the RTC at boot, so files are dated
 - 0049 Clock: NTP at boot and during sends, written to the RTC
+- 0050 Manifest: feckless-libs v0.9.10, for the RTC alarm and the charger's QC line
