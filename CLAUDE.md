@@ -259,3 +259,4 @@ worked. A tag move keeps that line.
 - 0053 Status line: the battery, Defeatist's words, before the word count
 - 0054 Sleep: Defeatist's dim, fade, power-off steps and low-battery off, set on the settings page
 - 0055 Sleep: the key that wakes a dark screen is typed, not swallowed
+- 0056 Docs: the README and spec checked against the code after 0049-0055
