@@ -66,7 +66,7 @@ power on
 ```
 
 - The scheduled path never initializes the display, touch, or USB host.
-- **The interval is not wall-clock time.** It runs from the last boot or send attempt, measured on the RTC (or on uptime while the editor is up). There is no NTP and no top-of-the-hour alignment. At power-off the next alarm is `RTC now + interval`, rounded to the minute. Every boot, scheduled or user, is a point where "has anything changed since the last checkpoint" is evaluated.
+- **The interval is not wall-clock time.** It runs from the last boot or send attempt, measured on the RTC (or on uptime while the editor is up). There is no top-of-the-hour alignment, and NTP (0049) only sets the clock; it does not move the schedule. At power-off the next alarm is `RTC now + interval`, rounded to the minute. Every boot, scheduled or user, is a point where "has anything changed since the last checkpoint" is evaluated.
 - **Time budget:** give the whole send path a hard cap (suggest 45 s). On timeout, count it as a failure and apply backoff.
 - **Backoff:** normal interval is 1 h (configurable). On failure, double up to a **2 h maximum**. Reset to normal on success. On a dark wake the failure is silent; its result is kept for the next editor open (section 6).
 - **The card is the source of truth.** `dirty` and `last_sent_seq` in NVS are caches. `dirty` lets an empty wake skip mounting the SD card; `last_sent_seq` mirrors the log's last checkpoint. At every editor boot, recompute both from the log and let the log win. A swapped card or stale NVS must never cause a missed send or a silent duplicate.
@@ -88,7 +88,7 @@ power on
 - **External edits:** the hash of the last export is stored in the log. If the export file differs from it at export time, do not overwrite it. Write `name.conflict.ext` beside it and leave the original alone. Importing external edits as ops is a possible later feature. *Built (0036):* the sidecar holds the CRC-32C of the export as last written and of one being put in place, so a power cut between the rename and the record is not taken for an outside edit. An import records its file as already exported. The status line says `conflict` until an export lands; it lands once the outside file is moved away or holds the log's text. A file imported before 0036 has no sidecar, so its first export is a conflict, once.
 - **Importing existing files:** a document with no log gets one created with the file as a single insert op, timestamped with the file's modification time.
 - **Delete moves** the export and both log dotfiles into a trash folder. It never erases.
-- Time comes from the RX8130, which is never synced. *0048:* it sets the system clock at boot when it can vouch for its time, so FatFs dates the files it writes; before that every file was dated 1980-01-01. If the chip reports VLF (lost time), mark the affected log entries' timestamps as untrusted rather than inventing a clock. `seq` is unaffected. The settings page must let the user set the clock by hand, since the daily filename and midnight rollover depend on it.
+- Time comes from the RX8130. *0049:* it is set by NTP whenever the radio is up -- once at boot, and during every send and dictionary download -- a reply before 2026 not believed; with no network it keeps its own time. *0048:* it sets the system clock at boot when it can vouch for its time, so FatFs dates the files it writes; before that every file was dated 1980-01-01. If the chip reports VLF (lost time), mark the affected log entries' timestamps as untrusted rather than inventing a clock. `seq` is unaffected. The settings page must let the user set the clock by hand, since the daily filename and midnight rollover depend on it -- for a device that never sees a network.
 
 ## 5. Modes and the editor
 
@@ -183,7 +183,7 @@ Held keys repeat. A chord with Ctrl, Command, Alt or the Windows key types nothi
 
 ## 6. Email
 
-- SMTP over TLS, linked directly (mbedtls / esp-tls). Send only. Wi-Fi is up only for the duration of a send (or a dictionary download, section 5), then dropped.
+- SMTP over TLS, linked directly (mbedtls / esp-tls). Send only. Wi-Fi is up only for the duration of a send (or a dictionary download, section 5), then dropped. *0049:* and once at boot for the time: up to 20 s to join a saved network and 8 s for an NTP reply, then down, with nothing on the screen; a send asked for meanwhile says busy.
 - **What is sent (daily mode):** the net difference between the text at the previous checkpoint and the text now, so text typed and then deleted within the interval is never sent. Plus a full copy on manual send. No changes since the last checkpoint means no attempt, no Wi-Fi, and no message.
 - **File mode:** manual send only (a hotkey or button), attaching the current export. Optionally attach the log.
 - **Manual send, built** (0038): Cmd+Enter in the editor, or Send notes now (or Cmd+Enter) on the settings page, flushes the log, exports, and sends today's whole text with the export's footer through the send task, to the account on the settings page: inline, so a mail reader shows it and a search finds it, and attached as `YYYY-MM-DD.md` with the log, `YYYY-MM-DD.md.h0`, beside it (0041, feckless-libs v0.9.7's `mailsend_with()`). The log is copied on the editor's task as the send starts, so the send never reads a file the editor is appending to; one over 4 MB is left off, and the result line says so. Subject `Jinxed Writer: <file>, seq 1-S`, or `not yet saved` when it could not be flushed. Its progress and result are in the status line, cleared 10 s after it ends or at the next key. No checkpoint is written yet: the background send will need it, and it is a new record type, which firmware before it would stop at.
@@ -213,7 +213,7 @@ Reached from a **gear icon** (touch) and also from the keyboard. At minimum:
 - **Theme** (0021): Dark (the default, section 5's dim low-contrast one), Light, Green console, Orange console -- four buttons under the rotation, the current one lit; kept in NVS (namespace `jinxed`, key `theme`) and applied from the first frame of the next boot. The editor, the spelling view, the settings page and the email form all follow it.
 - **Attribution** (0035): the name the user's edits are credited to in the log (section 4), up to 32 characters, "user" out of the box; kept in NVS (`jinxed`, `author`). A change applies from the next flush, in whichever day's log that is. The export's footer carries it when it is not the default (0037, section 4).
 - Library versions: render the table generated by `feckless_libversions` (`libversions.h` / `libversions.tsv`) with versions and licences, as the library provides it. Drawing it is the app's job.
-- Set the clock (the RTC is never synced; see section 4)
+- Set the clock (NTP sets it when there is a network, 0049; by hand for when there is none; see section 4)
 - Email and Wi-Fi setup entry points
 
 Touch is for this page, the file picker, and scrolling. The keyboard does everything else.

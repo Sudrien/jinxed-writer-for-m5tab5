@@ -61,7 +61,7 @@ static const char *TAG = "sender";
 #define FETCH_TRIES     (3)
 #define FETCH_RETRY_MS  (2000)
 
-typedef enum { JOB_TEST, JOB_DICT, JOB_DOC } job_t;
+typedef enum { JOB_TEST, JOB_DICT, JOB_DOC, JOB_NTP } job_t;
 
 /* 0038: a document's copy for its send, PSRAM, made once: the editor's
  * whole text, the footer and a NUL. */
@@ -120,6 +120,60 @@ static void radio(bool on)
 
 static bool online(void) { return wifi_connected() || net_online(); }
 
+/* ---- 0049: the time, by NTP ------------------------------------------------
+ *
+ * SNTP starts by itself once the station has an address (wifi.c), now
+ * that ntp_enabled says yes; wifi_stop() ends it. Its reply has already
+ * set the system clock when ntp_reply() runs; this writes the RTC to
+ * match, so the next boot starts right too. A reply before 2026 is not
+ * believed and the RTC is left alone, as Avoidant's clock.c does.
+ */
+#define CLOCK_FLOOR     1767225600LL    /* 2026-01-01 00:00 UTC */
+#define NTP_JOIN_MS     (20 * 1000)     /* at boot: a network, or give up */
+#define NTP_WAIT_MS     (8 * 1000)      /* then a reply, or give up */
+
+static volatile uint32_t s_ntp_gen;     /* bumped per believed reply */
+
+static bool ntp_on(void) { return true; }
+
+static bool ntp_reply(int64_t epoch, int64_t boot_us)
+{
+    (void)boot_us;
+    if (epoch < CLOCK_FLOOR) {
+        ESP_LOGW(TAG, "NTP reply %lld is before 2026; the RTC left alone", (long long)epoch);
+        return false;
+    }
+    if (rtc8130_write(epoch)) ESP_LOGI(TAG, "NTP to the RTC: %lld", (long long)epoch);
+    else ESP_LOGW(TAG, "NTP reply not written: no RTC");
+    s_ntp_gen++;
+    return true;
+}
+
+/* With the radio up and online: wait, up to `ms`, for a reply after
+ * `gen`. True if one came. */
+static bool ntp_wait(uint32_t gen, uint32_t ms)
+{
+    const int64_t t0 = esp_timer_get_time();
+    while (s_ntp_gen == gen && esp_timer_get_time() - t0 < (int64_t)ms * 1000)
+        vTaskDelay(pdMS_TO_TICKS(POLL_MS));
+    return s_ntp_gen != gen;
+}
+
+/* At boot, once: the radio up for the time alone, then down. Silent --
+ * the editor shows no line for it -- and quick to give up. */
+static void ntp_boot(void)
+{
+    const int64_t t0 = esp_timer_get_time();
+    const uint32_t gen = s_ntp_gen;
+    radio(true);
+    while (!online() && esp_timer_get_time() - t0 < (int64_t)NTP_JOIN_MS * 1000)
+        vTaskDelay(pdMS_TO_TICKS(POLL_MS));
+    const bool got = online() && ntp_wait(gen, NTP_WAIT_MS);
+    radio(false);
+    ESP_LOGI(TAG, "boot NTP: %s in %lld ms", got ? "set" : online() ? "no reply" : "no network",
+             (long long)((esp_timer_get_time() - t0) / 1000));
+}
+
 /* ---- one send ----------------------------------------------------------- */
 
 /*
@@ -132,6 +186,7 @@ static void send_one(const char *subject, const char *body, const mailsend_attac
                      const char *note)
 {
     const int64_t t0 = esp_timer_get_time();
+    const uint32_t ntp_gen = s_ntp_gen;     /* 0049 */
     const bool configured = mailcfg_load(NULL, &s_cfg);
     char dom[MAILCFG_ADDR_MAX + 2];
     mailcfg_domain(s_cfg.to, dom, sizeof dom);
@@ -162,6 +217,9 @@ static void send_one(const char *subject, const char *body, const mailsend_attac
         set_line(line);
     }
     mailcfg_wipe(&s_cfg);
+    /* 0049: SNTP started at the join; give it a moment if it has not
+     * answered yet, so a send also sets the clock. Usually it already has. */
+    if (online() && s_ntp_gen == ntp_gen) ntp_wait(ntp_gen, NTP_WAIT_MS / 2);
     radio(false);
     ESP_LOGI(TAG, "send done in %lld ms", (long long)((esp_timer_get_time() - t0) / 1000));
 }
@@ -299,6 +357,7 @@ static void send_task(void *arg)
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         if (s_job == JOB_DICT)     fetch_dict();
         else if (s_job == JOB_DOC) doc_send();
+        else if (s_job == JOB_NTP) ntp_boot();
         else                       test_send();
         s_busy = false;
         s_gen++;
@@ -321,16 +380,26 @@ esp_err_t sender_init(void)
     esp_err_t err = feckless_net_start(&net);
     if (err != ESP_OK) ESP_LOGW(TAG, "network start: %s", esp_err_to_name(err));
 
-    /* The app's policy: the radio only while a send wants it; no NTP (the
-     * RTC is set by hand, spec 4). */
-    static const feckless_net_hooks_t hooks = { .wifi_enabled = radio_wanted };
+    /* The app's policy: the radio only while a send wants it. 0049: and
+     * NTP whenever it is up, the reply written to the RTC. */
+    static const feckless_net_hooks_t hooks = {
+        .wifi_enabled = radio_wanted,
+        .ntp_enabled  = ntp_on,
+        .ntp_reply    = ntp_reply,
+    };
     feckless_net_set_hooks(&hooks);
 
     /* Internal: this task reads flash (see the top of the file). */
     StackType_t *stack = heap_caps_malloc(SEND_STACK, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!stack) return ESP_ERR_NO_MEM;
     s_task = xTaskCreateStatic(send_task, "send", SEND_STACK, NULL, SEND_PRIO, stack, &s_tcb);
-    return s_task ? ESP_OK : ESP_FAIL;
+    if (!s_task) return ESP_FAIL;
+    /* 0049: the time at boot. Busy while it runs, so a send asked for in
+     * the first seconds says so and is asked again. */
+    s_busy = true;
+    s_job = JOB_NTP;
+    xTaskNotifyGive(s_task);
+    return ESP_OK;
 }
 
 bool sender_test(void)

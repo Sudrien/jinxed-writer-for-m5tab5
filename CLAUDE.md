@@ -252,3 +252,4 @@ worked. A tag move keeps that line.
 - 0046 Notes page: Cmd+R renames, no F2; the selected note named in the footer
 - 0047 Status line: the open note's name; the notes page's footer back to keys
 - 0048 Clock: the system clock from the RTC at boot, so files are dated
+- 0049 Clock: NTP at boot and during sends, written to the RTC
