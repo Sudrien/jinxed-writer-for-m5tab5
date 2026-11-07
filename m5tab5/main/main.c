@@ -3,6 +3,9 @@
  *
  * SPDX-License-Identifier: MIT
  */
+#include <sys/time.h>
+#include <time.h>
+
 #include "esp_app_desc.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -21,6 +24,29 @@
 #include "kbd.h"
 
 static const char *TAG = "jinxed";
+
+/*
+ * 0048: the system clock from the RX8130, before the card is mounted.
+ * FatFs stamps every file it writes from the system clock, which starts
+ * at the epoch, so without this every note the Tab5 wrote was dated
+ * 1980-01-01 -- FAT's first day -- in the notes page and on a computer.
+ * Avoidant does the same at boot (its clock.c). Nothing is written
+ * back: the RTC is never set here (spec 4). A time the chip cannot vouch
+ * for (VLF), or one before 2026, is left alone, and files stay dated as
+ * before rather than wrongly.
+ */
+#define CLOCK_FLOOR     1767225600LL    /* 2026-01-01 00:00 UTC */
+
+static void clock_from_rtc(void)
+{
+    int64_t epoch;
+    if (!rtc8130_read(&epoch) || epoch < CLOCK_FLOOR) {
+        ESP_LOGW(TAG, "RTC time not trusted; files keep FAT's default date");
+        return;
+    }
+    const struct timeval tv = { .tv_sec = (time_t)epoch };
+    if (settimeofday(&tv, NULL) == 0) ESP_LOGI(TAG, "system clock from the RTC: %lld", (long long)epoch);
+}
 
 void app_main(void)
 {
@@ -42,6 +68,7 @@ void app_main(void)
     /* Timestamps for the log. Absent or VLF is not fatal: records are
      * marked untrusted instead (spec section 4). */
     if (!rtc8130_init(tab5io_bus())) ESP_LOGW(TAG, "no RTC; log times untrusted");
+    clock_from_rtc();
     /* NVS: the email account (feckless_mail), later the Wi-Fi list. */
     ESP_ERROR_CHECK(nvsh_init());
     ESP_ERROR_CHECK(display_init());
