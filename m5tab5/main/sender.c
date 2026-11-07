@@ -78,6 +78,7 @@ static char               s_md_name[40], s_log_name[44];
 static TaskHandle_t       s_task;
 static volatile job_t     s_job;
 static volatile bool      s_fetched;
+static volatile bool      s_sent;       /* 0051: the last send went */
 static DRAM_ATTR StaticTask_t s_tcb;
 static volatile bool      s_want_radio;
 static volatile bool      s_busy;
@@ -212,6 +213,7 @@ static void send_one(const char *subject, const char *body, const mailsend_attac
         const int64_t left_ms = (int64_t)MAILSEND_TIMEOUT_MS - (esp_timer_get_time() - t0) / 1000;
         mailsend_result_t r;
         mailsend_with(&s_cfg, subject, body, att, n_att, now, left_ms > 1000 ? (uint32_t)left_ms : 1000, &r);
+        s_sent = r.err == MAILSEND_OK;
         if (r.err == MAILSEND_OK) snprintf(line, sizeof line, "sent to %s%s", dom, note ? note : "");
         else                      snprintf(line, sizeof line, "not sent: %s", r.why);
         set_line(line);
@@ -421,6 +423,7 @@ bool sender_send_doc(const char *name, const char *range, const char *text, uint
     const size_t fl = foot ? strlen(foot) : 0;
     if (!s_doc || (size_t)len + fl + 1 > DOC_MAX) return false;
     s_busy = true;
+    s_sent = false;
     memcpy(s_doc, text, len);
     memcpy(s_doc + len, foot ? foot : "", fl + 1);
     s_doc_len = len + (uint32_t)fl;
@@ -446,3 +449,5 @@ bool sender_fetch_dict(void)
 }
 
 bool sender_fetched(void) { return s_fetched; }
+
+bool sender_sent(void) { return s_sent; }

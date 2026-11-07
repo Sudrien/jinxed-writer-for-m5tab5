@@ -51,6 +51,8 @@
 #include "doclog.h"
 #include "files.h"
 #include "kbd.h"
+#include "lcd.h"
+#include "power.h"
 #include "rtc8130.h"
 #include "sender.h"
 #include "settings.h"
@@ -139,6 +141,21 @@ static TickType_t s_send_until;
 static bool      s_ever_open;
 static uint32_t  s_gen;
 static TickType_t s_attach_after;
+/* 0051: what the send now covers, to note as sent when it goes. */
+static uint32_t  s_send_seq;
+static char      s_send_name[FILES_NAME_MAX + 1];
+
+/* 0051: idle (spec 5): dim, then dark, then the power-off sequence.
+ * Any key or touch puts the backlight back; the one that wakes a dark
+ * screen is swallowed, since nothing could be seen to type at. Only
+ * this loop counts: a page open (settings, the notes) is not idle. */
+#define IDLE_DIM_MS     (2 * 60 * 1000)
+#define IDLE_DARK_MS    (5 * 60 * 1000)
+#define IDLE_OFF_MS     (20 * 60 * 1000)
+#define IDLE_RETRY_MS   (60 * 1000)     /* off waits on the card or a send */
+#define IDLE_DIM_PCT    (DISPLAY_BACKLIGHT / 4)
+static TickType_t s_idle_from;
+static int       s_idle;        /* 0 lit, 1 dim, 2 dark */
 
 /* ---- layout ----------------------------------------------------------- */
 
@@ -586,10 +603,14 @@ static bool send_now(void)
     save_tick(true);
     export_tick(true);
     char range[40], foot[DOCLOG_FOOT_MAX];
-    if (!s_pending && doclog_is_open())
+    s_send_seq = 0;
+    if (!s_pending && doclog_is_open()) {
         snprintf(range, sizeof range, "seq 1-%lu", (unsigned long)doclog_seq());
-    else
+        s_send_seq = doclog_seq();      /* 0051 */
+        snprintf(s_send_name, sizeof s_send_name, "%s", s_name);
+    } else {
         snprintf(range, sizeof range, "not yet saved");
+    }
     int64_t t;
     const bool t_ok = rtc_now(&t);
     const esp_app_desc_t *d = esp_app_get_description();
@@ -618,6 +639,7 @@ static bool send_tick(void)
         snprintf(s_send_line, sizeof s_send_line, "%s", line);
         if (!busy) {
             s_sending = false;
+            if (sender_sent() && s_send_seq) power_note_sent(s_send_name, s_send_seq);  /* 0051 */
             s_send_until = xTaskGetTickCount() + pdMS_TO_TICKS(SEND_SHOW_MS);
         }
         return true;
@@ -1933,10 +1955,45 @@ esp_err_t editor_init(void)
     if (!s_row_buf) return ESP_ERR_NO_MEM;
     measure();
     settings_on_send(send_now);         /* 0038: the settings page's button */
+    /* 0051: how the last scheduled send went, for a while (spec 6). */
+    if (power_wake_line(s_send_line, sizeof s_send_line))
+        s_send_until = xTaskGetTickCount() + pdMS_TO_TICKS(SEND_SHOW_MS);
     pick_name();
     attach();
     redraw();
     return ESP_OK;
+}
+
+/* 0051: a key or touch. True when it woke a dark screen and is to be
+ * swallowed. */
+static bool idle_input(void)
+{
+    s_idle_from = xTaskGetTickCount();
+    if (!s_idle) return false;
+    const bool dark = s_idle == 2;
+    s_idle = 0;
+    lcd_backlight_set(DISPLAY_BACKLIGHT);
+    return dark;
+}
+
+/* 0051: the idle steps, and the power-off at the end of them. Off only
+ * once the card has every word and no send is running; otherwise it
+ * stays dark and asks again in a minute. */
+static void idle_tick(void)
+{
+    const TickType_t idle = xTaskGetTickCount() - s_idle_from;
+    if (s_idle < 1 && idle >= pdMS_TO_TICKS(IDLE_DIM_MS)) { s_idle = 1; lcd_backlight_set(IDLE_DIM_PCT); }
+    if (s_idle < 2 && idle >= pdMS_TO_TICKS(IDLE_DARK_MS)) { s_idle = 2; lcd_backlight_set(0); }
+    if (idle < pdMS_TO_TICKS(IDLE_OFF_MS)) return;
+    save_tick(true);
+    export_tick(true);
+    if (s_pending || s_sending) {
+        ESP_LOGW(TAG, "idle: not off yet -- %s", s_pending ? "the card does not have it all" : "a send is running");
+        s_idle_from = xTaskGetTickCount() - pdMS_TO_TICKS(IDLE_OFF_MS - IDLE_RETRY_MS);
+        return;
+    }
+    power_off_idle(s_name, doclog_is_open() ? doclog_seq() : 0);
+    s_idle_from = xTaskGetTickCount();  /* still here: the pulse failed */
 }
 
 void editor_run(void)
@@ -1964,7 +2021,13 @@ void editor_run(void)
 
         kbd_event_t ev;
         bool dirty = false;
-        if (kbd_get(&ev, wait)) {
+        bool got = kbd_get(&ev, wait);
+        if (got && idle_input() && ev.down) {
+            got = false;                /* 0051: woke the screen; not typed */
+            held = 0;
+            dirty = true;
+        }
+        if (got) {
             if (ev.down && !(ev.mods & ~KBD_MOD_SHIFT) &&
                 (ev.usage == KBD_F1 || ev.usage == KBD_F11 || ev.usage == KBD_F12)) {
                 held = 0;               /* 0029: the F keys, unmodified */
@@ -2025,6 +2088,7 @@ void editor_run(void)
         /* A tap on the gear: down and up, both on it. */
         int tx, ty;
         const bool t_now = touch_get(&tx, &ty);
+        if (t_now && idle_input()) { tx = ty = -1; touch_x = touch_y = -1; }   /* 0051: not the gear */
         if (t_now && !touch_down) { touch_x = tx; touch_y = ty; }
         if (!t_now && touch_down && (!s_bare || !kbd_present()) && settings_gear_hit(touch_x, touch_y)) open_settings = true;
         touch_down = t_now;
@@ -2047,6 +2111,9 @@ void editor_run(void)
             dirty = true;
         }
 
+        /* 0051: a page or a sheet may have been open a long while. */
+        if (got || open_settings || open_spell) s_idle_from = xTaskGetTickCount();
+
         /* Plugging or unplugging shows in the status line. */
         const bool has_kbd = kbd_present();
         if (has_kbd != had_kbd) { had_kbd = has_kbd; dirty = true; }
@@ -2057,6 +2124,7 @@ void editor_run(void)
         if (!held && save_tick(false)) dirty = true;
         if (!held && export_tick(false)) dirty = true;
         if (send_tick()) dirty = true;
+        if (!held) idle_tick();         /* 0051 */
 
         if (dirty) redraw();
     }

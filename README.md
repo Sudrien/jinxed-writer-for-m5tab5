@@ -45,14 +45,19 @@ Not ready for human consumption yet. `writerdeck_spec.md` is the design;
   and Ctrl+-, or Command, while writing), all kept across power-offs; and the library
   versions and licences.
 
+- **Idle** (0051): dim after 2 minutes, dark after 5 (the key that
+  wakes it is not typed), and after 20 the log flushed, exported and the
+  board powered off. With notes unsent and email set up, the RTC's alarm
+  wakes it an hour later, dark, to send them and power off again; a
+  failure tries again at twice the interval, up to 2 hours.
 - **Email now:** Ctrl+Enter (Command+Enter), or Send notes now in
   Settings, mails today's text to the account set up there: in the body,
   and attached as the day's `.md` with its log (`.md.h0`) beside it.
 
 ## Not yet
 
-Scheduled and background email sends, sleep with the RTC alarm, idle dim
-and power-off, the highlight-mode picker and TeX, setting the clock. The spec describes each.
+Background sends while typing, checkpoint records in the log, the
+highlight-mode picker and TeX, setting the clock. The spec describes each.
 
 ## Building
 

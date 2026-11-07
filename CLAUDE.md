@@ -254,3 +254,4 @@ worked. A tag move keeps that line.
 - 0048 Clock: the system clock from the RTC at boot, so files are dated
 - 0049 Clock: NTP at boot and during sends, written to the RTC
 - 0050 Manifest: feckless-libs v0.9.10, for the RTC alarm and the charger's QC line
+- 0051 Power: idle dim, dark and power-off; the RTC alarm armed for unsent notes, and the dark wake that sends them

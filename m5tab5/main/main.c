@@ -22,6 +22,7 @@
 #include "sender.h"
 #include "editor.h"
 #include "kbd.h"
+#include "power.h"
 
 static const char *TAG = "jinxed";
 
@@ -68,9 +69,27 @@ void app_main(void)
     /* Timestamps for the log. Absent or VLF is not fatal: records are
      * marked untrusted instead (spec section 4). */
     if (!rtc8130_init(tab5io_bus())) ESP_LOGW(TAG, "no RTC; log times untrusted");
+    /* 0051: AF read, cleared and AIE off before anything else (spec 2,
+     * rule 5). Set, this boot is a scheduled send: dark, no display,
+     * touch or keyboard (spec 3). */
+    const bool dark = power_woke();
     clock_from_rtc();
     /* NVS: the email account (feckless_mail), later the Wi-Fi list. */
     ESP_ERROR_CHECK(nvsh_init());
+    if (dark) {
+        /* The card and the send task, as below, and nothing that lights
+         * or listens. The port is never started: the card is SDMMC. */
+        ESP_ERROR_CHECK(usbhost_init(tab5io_exp2()));
+        static const storage_usb_t dusb = {
+            .register_class = usbhost_register_class,
+            .set_power      = usbhost_set_power,
+            .powered        = usbhost_powered,
+        };
+        storage_io_init();
+        ESP_ERROR_CHECK(storage_init(&dusb));
+        if (sender_init() != ESP_OK) ESP_LOGW(TAG, "no send task");
+        power_dark_wake();
+    }
     ESP_ERROR_CHECK(display_init());
     /* Touch after the panel (TP_RST rides on its reset write), turned
      * with the picture. Not fatal: the keyboard does everything. */

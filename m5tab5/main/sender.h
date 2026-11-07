@@ -60,6 +60,9 @@ bool sender_send_doc(const char *name, const char *range, const char *text, uint
 bool sender_fetch_dict(void);
 bool sender_fetched(void);
 
+/* 0051: whether the last sender_send_doc() went: false while it runs. */
+bool sender_sent(void);
+
 /* Whether a send is running, and a line for the settings page: what it
  * is doing or how the last one ended, "" before the first. Domain only,
  * never the whole address (spec section 6). */
