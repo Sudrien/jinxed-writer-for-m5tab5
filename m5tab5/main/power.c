@@ -43,7 +43,7 @@ static const char *TAG = "power";
 #define DARK_CAP_MS     (120 * 1000)
 #define DARK_TEXT_MAX   (256 * 1024)    /* the editor's TEXT_MAX */
 
-#define NAME_MAX        (64)
+#define POWER_NAME_MAX        (64)
 
 /* ---- the off switch ----------------------------------------------------- */
 
@@ -96,7 +96,7 @@ static void set_interval(uint32_t s)
 static bool unsent(const char *name, uint32_t seq)
 {
     if (!seq) return false;                 /* nothing written yet */
-    char sent[NAME_MAX];
+    char sent[POWER_NAME_MAX];
     size_t n = sizeof sent;
     uint32_t s = 0;
     if (nvsh_get_str(NVS_NS, NVS_SENT_NAME, sent, &n) != ESP_OK || strcmp(sent, name)) return true;
@@ -174,7 +174,7 @@ static bool past(int64_t t0)
 void power_dark_wake(void)
 {
     const int64_t t0 = esp_timer_get_time();
-    char name[NAME_MAX];
+    char name[POWER_NAME_MAX];
     size_t n = sizeof name;
     if (nvsh_get_str(NVS_NS, NVS_WAKE_NAME, name, &n) != ESP_OK || !name[0]) {
         dark_line("woke with no note to send");
