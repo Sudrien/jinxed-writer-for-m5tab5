@@ -258,3 +258,4 @@ worked. A tag move keeps that line.
 - 0052 Fix: power.c's NAME_MAX, which picolibc's sys/syslimits.h already defines
 - 0053 Status line: the battery, Defeatist's words, before the word count
 - 0054 Sleep: Defeatist's dim, fade, power-off steps and low-battery off, set on the settings page
+- 0055 Sleep: the key that wakes a dark screen is typed, not swallowed

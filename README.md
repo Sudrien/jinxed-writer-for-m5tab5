@@ -46,7 +46,7 @@ Not ready for human consumption yet. `writerdeck_spec.md` is the design;
   versions and licences.
 
 - **Sleep** (0051, 0054), as Defeatist does it: dim to half after 30 s,
-  fade to dark after 2 min (the key that wakes it is not typed), and
+  fade to dark after 2 min (the key that wakes it is typed; 0055), and
   after 30 min the log flushed, exported and the board powered off --
   each a row on the settings page, Never to 2 h. A pack under 6.3 V for
   30 s powers off too. With notes unsent and email set up, the RTC's

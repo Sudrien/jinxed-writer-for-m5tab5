@@ -545,7 +545,7 @@ static page_t layout(bool draw, int scroll)
         }
         y += IDLE_ROW_H;
     }
-    TXT(y, "Any key or tap wakes the screen; that one is not typed.", COL_DIM);
+    TXT(y, "Any key or tap wakes the screen. The key is typed.", COL_DIM);
     y += LINE_H;
     TXT(y, "Off waits for the card. Unsent notes go out an hour later.", COL_DIM);
     y += LINE_H + SECTION_GAP;

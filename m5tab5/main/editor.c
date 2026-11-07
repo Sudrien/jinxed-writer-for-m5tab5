@@ -150,8 +150,9 @@ static uint32_t  s_send_seq;
 static char      s_send_name[FILES_NAME_MAX + 1];
 
 /* 0051: idle (spec 5): dim, then dark, then the power-off sequence.
- * Any key or touch puts the backlight back; the one that wakes a dark
- * screen is swallowed, since nothing could be seen to type at. Only
+ * Any key or touch puts the backlight back; a tap that wakes a dark
+ * screen is swallowed, since nothing could be seen to press (0055: a
+ * key is not). Only
  * this loop counts: a page open (settings, the notes) is not idle.
  * 0054: as Defeatist does it -- the waits are the settings page's
  * (power.h), the dim is half the backlight (its SCREENDIM_LEVEL_PCT),
@@ -2007,8 +2008,7 @@ esp_err_t editor_init(void)
     return ESP_OK;
 }
 
-/* 0051: a key or touch. True when it woke a dark screen and is to be
- * swallowed. */
+/* 0051: a key or touch. True when it woke a dark screen. */
 static bool idle_input(void)
 {
     s_idle_from = xTaskGetTickCount();
@@ -2139,11 +2139,10 @@ void editor_run(void)
         kbd_event_t ev;
         bool dirty = false;
         bool got = kbd_get(&ev, wait);
-        if (got && idle_input() && ev.down) {
-            got = false;                /* 0051: woke the screen; not typed */
-            held = 0;
-            dirty = true;
-        }
+        /* 0055: the key that wakes the screen is typed too -- the words
+         * are the point, and the card has them either way. Only a tap is
+         * swallowed (below): what it lands on could not be seen. */
+        if (got && idle_input()) dirty = true;
         if (got) {
             if (ev.down && !(ev.mods & ~KBD_MOD_SHIFT) &&
                 (ev.usage == KBD_F1 || ev.usage == KBD_F11 || ev.usage == KBD_F12)) {
