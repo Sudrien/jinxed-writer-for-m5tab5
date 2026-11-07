@@ -246,3 +246,4 @@ worked. A tag move keeps that line.
 - 0040 Fix: wrapped text read through gfx_wrap_line()'s NULL at the end
 - 0041 Send: the notes' .md and log attached, on feckless-libs v0.9.7
 - 0042 Send: the log attached up to its last record, not its grown length
+- 0043 Manifest: feckless-libs v0.9.8, and feckless_chooser
