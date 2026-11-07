@@ -3,6 +3,9 @@
  * runs in, and the page that lists the notes and opens, makes, renames
  * and deletes them.
  *
+ * 0046: no F keys here -- they are the editor's -- and the bottom line
+ * names the note the keys would act on.
+ *
  * The page is feckless_chooser over DOCLOG_DIR: the notes (.md, .txt,
  * .tex) newest first, with sizes and dates; the logs are dotfiles and
  * never shown. Cmd+O in the editor opens it, in either mode. Its keys
@@ -11,7 +14,7 @@
  *   Up/Down, PageUp/PageDown, Home/End, a letter   move
  *   Enter, or a tap                                open
  *   Cmd+N                                          a new note, named
- *   F2, or Cmd+R                                   rename
+ *   Cmd+R                                          rename
  *   Delete, or Cmd+Backspace (Finder's)            to the trash, asked first
  *   Esc, or Cmd+O                                  back to the note
  *

@@ -166,16 +166,28 @@ static void title(const char *cur)
     }
 }
 
-/* The bottom line: a note in `bad` colour when there is one, else the keys. */
+/* The bottom line: a note in `bad` colour when there is one; else the
+ * selected note's name (0046), what the keys act on, and the keys. */
 static void foot(const char *note, bool apple)
 {
-    const int W = gfx_w(), y = foot_y();
+    const int W = gfx_w(), y = foot_y(), ty = y + (foot_h() - text_h()) / 2;
     gfx_fill_rect(0, y, W, foot_h(), COL_HEAD);
+    if (note) {
+        gfx_draw_text(PAD, ty, note, scale(), W - 2 * PAD, COL_BAD);
+        return;
+    }
     const char *keys = apple
-        ? "Enter: open   Cmd+N: new   F2: rename   Cmd+Delete: trash   Esc: back"
-        : "Enter: open   Ctrl+N: new   F2: rename   Delete: trash   Esc: back";
-    gfx_draw_text(PAD, y + (foot_h() - text_h()) / 2, note ? note : keys, scale(), W - 2 * PAD,
-                  note ? COL_BAD : COL_DIM);
+        ? "Enter: open   Cmd+N: new   Cmd+R: rename   Cmd+Delete: trash   Esc: back"
+        : "Enter: open   Ctrl+N: new   Ctrl+R: rename   Delete: trash   Esc: back";
+    const storage_ent_t *sel = chooser_sel(&s_ch);
+    int x = PAD;
+    if (sel) {
+        /* the name first, never more than half the line */
+        const int nw = gfx_text_w(sel->name, scale()), max = (W - 2 * PAD) / 2;
+        gfx_draw_text(x, ty, sel->name, scale(), max, COL_TEXT);
+        x += (nw < max ? nw : max) + 3 * GFX_GLYPH_W(scale());
+    }
+    if (x < W - PAD) gfx_draw_text(x, ty, keys, scale(), W - PAD - x, COL_DIM);
 }
 
 static void draw(const char *cur, const char *note, bool apple)
@@ -350,7 +362,7 @@ files_result_t files_page(char *cur, size_t n, bool apple, bool new_note)
                 res = FILES_OPEN;
                 break;
             }
-            if (sel && (e->usage == KBD_F2 || (e->cmd && e->usage == KBD_R))) {
+            if (sel && e->cmd && e->usage == KBD_R) {   /* 0046: no F2; F keys are the editor's */
                 char from[FILES_NAME_MAX + 1], to[FILES_NAME_MAX + 1];
                 snprintf(from, sizeof from, "%s", sel->name);
                 if (!ask_name("Rename to:", from, to, sizeof to, cur) || !strcmp(from, to)) continue;
