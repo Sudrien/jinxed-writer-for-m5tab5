@@ -26,6 +26,27 @@
 #define POWER_INTERVAL_S        (3600)
 #define POWER_BACKOFF_MAX_S     (7200)
 
+/*
+ * 0054: the idle steps, Defeatist's (its screendim.h and powerdown.h):
+ * a row of five on the settings page, Never and four times, each kept
+ * in NVS (`jinxed`, `idledim` / `idleoff` / `idlepwr`). Off is never
+ * sooner than the dim (screenoff_effective()), and power-off never
+ * sooner than off. The defaults are a writer's, not the player's:
+ * dim at 30 s, dark at 2 min, off at 30 min.
+ */
+#define POWER_DIM       (0)
+#define POWER_DARK      (1)
+#define POWER_OFF       (2)
+#define POWER_KINDS     (3)
+#define POWER_STEPS     (5)     /* 0 Never, then 1..4 */
+
+int         power_step(int kind);
+void        power_set_step(int kind, int step);
+const char *power_step_label(int kind, int step);
+/* The wait for `kind` as it applies, clamped behind the one before it;
+ * 0 for never. */
+int         power_idle_seconds(int kind);
+
 /* Was this boot the alarm's? AF cleared and AIE off either way (spec 2,
  * rule 5). Once, straight after rtc8130_init(). */
 bool power_woke(void);

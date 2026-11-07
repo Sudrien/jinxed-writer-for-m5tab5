@@ -43,6 +43,7 @@
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -52,6 +53,7 @@
 #include "files.h"
 #include "battery.h"
 #include "kbd.h"
+#include "brightness.h"
 #include "lcd.h"
 #include "power.h"
 #include "rtc8130.h"
@@ -150,12 +152,18 @@ static char      s_send_name[FILES_NAME_MAX + 1];
 /* 0051: idle (spec 5): dim, then dark, then the power-off sequence.
  * Any key or touch puts the backlight back; the one that wakes a dark
  * screen is swallowed, since nothing could be seen to type at. Only
- * this loop counts: a page open (settings, the notes) is not idle. */
-#define IDLE_DIM_MS     (2 * 60 * 1000)
-#define IDLE_DARK_MS    (5 * 60 * 1000)
-#define IDLE_OFF_MS     (20 * 60 * 1000)
+ * this loop counts: a page open (settings, the notes) is not idle.
+ * 0054: as Defeatist does it -- the waits are the settings page's
+ * (power.h), the dim is half the backlight (its SCREENDIM_LEVEL_PCT),
+ * dark is a fade (its screen_fade_out()), and a pack run down powers
+ * off before it is deep-discharged (its 6004 guard). */
 #define IDLE_RETRY_MS   (60 * 1000)     /* off waits on the card or a send */
-#define IDLE_DIM_PCT    (DISPLAY_BACKLIGHT / 4)
+#define IDLE_DIM_PCT    (DISPLAY_BACKLIGHT * 50 / 100)
+#define FADE_MS         (800)
+#define FADE_FRAME_MS   (16)
+#define LOWBATT_MV      (6300)
+#define LOWBATT_HOLD_MS (30000)
+#define LOWBATT_SHOW_MS (4000)
 static TickType_t s_idle_from;
 static int       s_idle;        /* 0 lit, 1 dim, 2 dark */
 
@@ -2011,24 +2019,98 @@ static bool idle_input(void)
     return dark;
 }
 
-/* 0051: the idle steps, and the power-off at the end of them. Off only
- * once the card has every word and no send is running; otherwise it
- * stays dark and asks again in a minute. */
-static void idle_tick(void)
+/* 0054: Defeatist's screen_fade_out(): light, not duty, to black -- the
+ * backlight in counts down to its floor, then the pixel filter -- and
+ * the filter put back, invisibly, for the wake. */
+static void fade_out(void)
 {
-    const TickType_t idle = xTaskGetTickCount() - s_idle_from;
-    if (s_idle < 1 && idle >= pdMS_TO_TICKS(IDLE_DIM_MS)) { s_idle = 1; lcd_backlight_set(IDLE_DIM_PCT); }
-    if (s_idle < 2 && idle >= pdMS_TO_TICKS(IDLE_DARK_MS)) { s_idle = 2; lcd_backlight_set(0); }
-    if (idle < pdMS_TO_TICKS(IDLE_OFF_MS)) return;
+    const int pct = s_idle == 1 ? IDLE_DIM_PCT : DISPLAY_BACKLIGHT;
+    const uint32_t duty0 = (uint32_t)(LCD_LEDC_DUTY_MAX * pct / 100);
+    const uint32_t floor_counts = (uint32_t)(LCD_LEDC_DUTY_MAX * BRIGHTNESS_FLOOR_PCT / 100);
+    const int f0 = gfx_filter();
+    int shown = f0;
+    const int64_t t0 = esp_timer_get_time();
+    for (;;) {
+        const double t = (double)(esp_timer_get_time() - t0) / (FADE_MS * 1000.0);
+        if (t >= 1.0) break;
+        const brightness_raw_t r = brightness_fade_at(duty0, f0, floor_counts, t);
+        lcd_backlight_set_counts(r.duty);
+        if (r.filter != shown) {
+            gfx_set_filter(r.filter);
+            gfx_blit(0, gfx_h());
+            shown = r.filter;
+        }
+        vTaskDelay(pdMS_TO_TICKS(FADE_FRAME_MS));
+    }
+    lcd_backlight_set_counts(0);
+    gfx_set_filter(f0);
+    if (shown != f0) gfx_blit(0, gfx_h());
+}
+
+/* The power-off sequence: flushed, exported, faded, off. False when it
+ * must wait -- the card does not have every word, or a send runs. */
+static bool power_down(void)
+{
     save_tick(true);
     export_tick(true);
     if (s_pending || s_sending) {
-        ESP_LOGW(TAG, "idle: not off yet -- %s", s_pending ? "the card does not have it all" : "a send is running");
-        s_idle_from = xTaskGetTickCount() - pdMS_TO_TICKS(IDLE_OFF_MS - IDLE_RETRY_MS);
+        ESP_LOGW(TAG, "not off yet -- %s", s_pending ? "the card does not have it all" : "a send is running");
+        return false;
+    }
+    if (s_idle != 2) fade_out();
+    s_idle = 2;
+    power_off_idle(s_name, doclog_is_open() ? doclog_seq() : 0);
+    return true;                        /* still here: the pulse failed */
+}
+
+/* 0051, 0054: the idle steps, and the power-off at the end of them;
+ * a power-off that must wait stays dark and asks again in a minute. */
+static void idle_tick(void)
+{
+    const TickType_t idle = xTaskGetTickCount() - s_idle_from;
+    const int dim = power_idle_seconds(POWER_DIM);
+    const int dark = power_idle_seconds(POWER_DARK);
+    const int off = power_idle_seconds(POWER_OFF);
+    if (s_idle < 1 && dim && idle >= pdMS_TO_TICKS(dim * 1000)) {
+        s_idle = 1;
+        lcd_backlight_set(IDLE_DIM_PCT);
+    }
+    if (s_idle < 2 && dark && idle >= pdMS_TO_TICKS(dark * 1000)) {
+        fade_out();                     /* after the dim: from where it is */
+        s_idle = 2;
+    }
+    if (!off || idle < pdMS_TO_TICKS(off * 1000)) return;
+    if (!power_down()) s_idle_from = xTaskGetTickCount() - pdMS_TO_TICKS(off * 1000 - IDLE_RETRY_MS);
+    else s_idle_from = xTaskGetTickCount();
+}
+
+/* 0054: Defeatist's low-battery guard. On the pack, under LOWBATT_MV for
+ * LOWBATT_HOLD_MS without a break, the status line says so and the
+ * board powers off -- the pack's own cut-off is far lower, and all of
+ * that is deep discharge. Again a minute later if it could not. */
+static void lowbatt_tick(void)
+{
+    static int64_t below_since, next_try;
+    if (!s_batt_ok) return;
+    const int64_t now = esp_timer_get_time();
+    const int mv = battery_mv();
+    const bool on_pack = mv > 0 && !battery_external() && !battery_charging() && battery_pct() >= 0;
+    if (!on_pack || mv >= LOWBATT_MV) { below_since = 0; return; }
+    if (!below_since) {
+        below_since = now;
+        ESP_LOGW(TAG, "battery %d mV, under %d: off in %d s if it stays there",
+                 mv, LOWBATT_MV, LOWBATT_HOLD_MS / 1000);
         return;
     }
-    power_off_idle(s_name, doclog_is_open() ? doclog_seq() : 0);
-    s_idle_from = xTaskGetTickCount();  /* still here: the pulse failed */
+    if (now - below_since < (int64_t)LOWBATT_HOLD_MS * 1000 || now < next_try) return;
+    ESP_LOGW(TAG, "battery %d mV for %d s: powering off to protect it", mv, LOWBATT_HOLD_MS / 1000);
+    if (s_idle) idle_input();
+    snprintf(s_send_line, sizeof s_send_line, "battery empty; turning off. Charge it before use.");
+    s_send_until = 0;
+    redraw();
+    vTaskDelay(pdMS_TO_TICKS(LOWBATT_SHOW_MS));
+    power_down();
+    next_try = esp_timer_get_time() + 60 * 1000000LL;
 }
 
 void editor_run(void)
@@ -2161,6 +2243,7 @@ void editor_run(void)
         if (send_tick()) dirty = true;
         if (batt_tick()) dirty = true;  /* 0053 */
         if (!held) idle_tick();         /* 0051 */
+        lowbatt_tick();                 /* 0054 */
 
         if (dirty) redraw();
     }

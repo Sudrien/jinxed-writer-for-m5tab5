@@ -35,7 +35,6 @@ static const char *TAG = "power";
 #define NVS_WAKE_LINE   "wline"     /* the last dark wake's result */
 
 #define PWROFF_BIT      (1u << 4)   /* expander 0x44 P4, PWROFF_PULSE */
-#define PULSE_MS        (500)
 #define PULSE_TRIES     (3)
 
 /* A dark wake's own cap, over the send's MAILSEND_TIMEOUT_MS: the card,
@@ -60,22 +59,78 @@ static esp_err_t exp2_bit(uint8_t reg, bool set)
     return i2c_master_transmit(d, b, sizeof b, 100);
 }
 
-/* Spec 2, rule 6: output, out of high-Z, high for ~500 ms, low; again if
- * the board is still running a second later. The alarm is already set
- * as it should be. */
+/* Spec 2, rule 6: output and out of high-Z, then the pulse; again if the
+ * board is still running a second later. The alarm is already set as it
+ * should be. */
 static void pulse_off(void)
 {
     lcd_backlight_set(0);
     for (int i = 0; i < PULSE_TRIES; i++) {
-        ESP_LOGW(TAG, "power off (pulse %d)", i + 1);
+        ESP_LOGW(TAG, "power off (try %d)", i + 1);
         exp2_bit(PI4IOE_REG_IO_DIR, true);
         exp2_bit(PI4IOE_REG_OUT_HIGH_Z, false);
-        exp2_bit(PI4IOE_REG_OUT_SET, true);
-        vTaskDelay(pdMS_TO_TICKS(PULSE_MS));
+        /* 0054: Defeatist's power_off_now(), M5Unified's toggle: ten
+         * writes 50 ms apart, low first. On battery the PMS150 cuts the
+         * rail somewhere in here and this never returns. */
+        for (int t = 0; t < 10; t++) {
+            exp2_bit(PI4IOE_REG_OUT_SET, t & 1);
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
         exp2_bit(PI4IOE_REG_OUT_SET, false);
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
-    ESP_LOGE(TAG, "still running after %d power-off pulses", PULSE_TRIES);
+    ESP_LOGE(TAG, "still running after %d power-off tries", PULSE_TRIES);
+}
+
+/* ---- the idle steps (0054) ------------------------------------------- */
+
+static const int k_secs[POWER_KINDS][POWER_STEPS - 1] = {
+    { 15, 30, 60, 120 },                        /* Defeatist's screendim.h */
+    { 30, 60, 120, 300 },                       /* its screenoff */
+    { 15 * 60, 30 * 60, 60 * 60, 120 * 60 },    /* its powerdown.h */
+};
+static const char *const k_labels[POWER_KINDS][POWER_STEPS] = {
+    { "Never", "15 s", "30 s", "1 min", "2 min" },
+    { "Never", "30 s", "1 min", "2 min", "5 min" },
+    { "Never", "15 min", "30 min", "1 h", "2 h" },
+};
+static const char *const k_keys[POWER_KINDS] = { "idledim", "idleoff", "idlepwr" };
+static const uint8_t k_default[POWER_KINDS] = { 2, 3, 2 };
+static int s_step[POWER_KINDS] = { -1, -1, -1 };
+
+int power_step(int kind)
+{
+    if (kind < 0 || kind >= POWER_KINDS) return 0;
+    if (s_step[kind] < 0) {
+        uint8_t v = k_default[kind];
+        nvsh_get_u8(NVS_NS, k_keys[kind], &v);
+        s_step[kind] = v < POWER_STEPS ? v : k_default[kind];
+    }
+    return s_step[kind];
+}
+
+void power_set_step(int kind, int step)
+{
+    if (kind < 0 || kind >= POWER_KINDS || step < 0 || step >= POWER_STEPS) return;
+    if (power_step(kind) == step) return;
+    s_step[kind] = step;
+    nvsh_set_u8(NVS_NS, k_keys[kind], (uint8_t)step);
+}
+
+const char *power_step_label(int kind, int step)
+{
+    if (kind < 0 || kind >= POWER_KINDS || step < 0 || step >= POWER_STEPS) return "";
+    return k_labels[kind][step];
+}
+
+int power_idle_seconds(int kind)
+{
+    if (kind < 0 || kind >= POWER_KINDS) return 0;
+    const int st = power_step(kind);
+    const int s = st ? k_secs[kind][st - 1] : 0;
+    if (!s || !kind) return s;
+    const int before = power_idle_seconds(kind - 1);   /* never sooner than it */
+    return s < before ? before : s;
 }
 
 /* ---- what has been sent ------------------------------------------------- */

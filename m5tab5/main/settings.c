@@ -31,6 +31,7 @@
 #include "doclog.h"
 #include "files.h"
 #include "nvs_handler.h"
+#include "power.h"
 #include "sender.h"
 
 static const char *TAG = "settings";
@@ -353,6 +354,17 @@ static int size_w(void)
     return w > 160 ? 160 : w;
 }
 
+/* 0054: the idle steps, five narrow buttons a row (power.h). */
+static int step_w(void)
+{
+    const int w = (gfx_w() - 2 * PAD - (POWER_STEPS - 1) * (PAD / 2)) / POWER_STEPS;
+    return w > 200 ? 200 : w;
+}
+static const char *const k_idle_title[POWER_KINDS] = {
+    "Dim after", "Screen off after", "Power off after",
+};
+#define IDLE_ROW_H      (LINE_H + 8 + BTN_H + 16)
+
 /* Positions in content coordinates, from layout(). */
 typedef struct {
     int edit_y, forget_y;       /* buttons; forget_y < 0 when not shown */
@@ -361,6 +373,7 @@ typedef struct {
     int theme_y;                /* the first row of the four themes */
     int size_y;                 /* the row of text sizes */
     int md_y;                   /* Markdown / None (0031) */
+    int idle_y;                 /* the first idle row's buttons (0054) */
     int mode_y;                 /* Daily / File (0044) */
     int name_y;                 /* Change name (0035) */
     int libs_y;                 /* first library row */
@@ -516,6 +529,25 @@ static page_t layout(bool draw, int scroll)
     y += BTN_H + 16;
     TXT(y, kbd_apple() ? "Text size in the editor; Cmd+= and Cmd+- there."
                        : "Text size in the editor; Ctrl+= and Ctrl+- there.", COL_DIM);
+    y += LINE_H + SECTION_GAP;
+
+    /* Sleep (0054): Defeatist's Sleep page's three rows. */
+    RULE(y - SECTION_GAP / 2);
+    TXT(y, "Sleep", COL_TEXT);
+    y += LINE_H + 8;
+    p.idle_y = y + LINE_H + 8;
+    for (int k = 0; k < POWER_KINDS; k++) {
+        TXT(y, k_idle_title[k], COL_DIM);
+        const int by = y + LINE_H + 8;
+        for (int i = 0; i < POWER_STEPS; i++) {
+            if (draw) button(PAD + i * (step_w() + PAD / 2), off + by, step_w(), BTN_H,
+                             power_step_label(k, i), i == power_step(k) ? COL_GO : COL_BTN);
+        }
+        y += IDLE_ROW_H;
+    }
+    TXT(y, "Any key or tap wakes the screen; that one is not typed.", COL_DIM);
+    y += LINE_H;
+    TXT(y, "Off waits for the card. Unsent notes go out an hour later.", COL_DIM);
     y += LINE_H + SECTION_GAP;
 
     /* Highlighting (0031): where spec 5's picker -- none, markdown, TeX
@@ -709,6 +741,13 @@ void settings_page(void)
                 } else if (cy >= p.mode_y && cy < p.mode_y + BTN_H) {
                     if (in_rect(in.x, cy, PAD, p.mode_y, bw, BTN_H)) files_set_mode(FILES_DAILY);
                     else if (in_rect(in.x, cy, PAD + bw + PAD / 2, p.mode_y, bw, BTN_H)) files_set_mode(FILES_FILE);
+                } else if (cy >= p.idle_y && cy < p.idle_y + POWER_KINDS * IDLE_ROW_H) {
+                    const int k = (cy - p.idle_y) / IDLE_ROW_H;     /* 0054 */
+                    const int by = p.idle_y + k * IDLE_ROW_H;
+                    for (int i = 0; i < POWER_STEPS; i++) {
+                        if (in_rect(in.x, cy, PAD + i * (step_w() + PAD / 2), by, step_w(), BTN_H))
+                            power_set_step(k, i);
+                    }
                 } else if (cy >= p.md_y && cy < p.md_y + BTN_H) {
                     if (in_rect(in.x, cy, PAD, p.md_y, bw, BTN_H)) display_set_markdown(true);
                     else if (in_rect(in.x, cy, PAD + bw + PAD / 2, p.md_y, bw, BTN_H)) display_set_markdown(false);

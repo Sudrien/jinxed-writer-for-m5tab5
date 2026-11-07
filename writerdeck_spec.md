@@ -4,7 +4,7 @@ A discreet capture device for getting notes down where a phone shouldn't come ou
 
 Priorities, in order: **never lose a word**, **instant to a cursor**, **discreet**, **battery life**.
 
-**Built so far** (0001-0044): the editor in daily mode and file mode's notes page (section 5), the mirrored log with recovery and export (section 4), the spelling check and its dictionary download (section 5), and the settings page's email account, test email, rotation and library table (section 7). *0051:* the power model, scheduled sends and idle dim, dark and power-off (sections 2, 3, 5), with "sent" kept in NVS (`sentname`, `sentseq`) until checkpoints exist; idle steps 2, 5 and 20 minutes, in the editor only. **Not yet:** background sends and checkpoints (section 6), the highlight-mode picker and TeX highlighting, setting the clock. The sections below are the design, built or not.
+**Built so far** (0001-0044): the editor in daily mode and file mode's notes page (section 5), the mirrored log with recovery and export (section 4), the spelling check and its dictionary download (section 5), and the settings page's email account, test email, rotation and library table (section 7). *0051:* the power model, scheduled sends and idle dim, dark and power-off (sections 2, 3, 5), with "sent" kept in NVS (`sentname`, `sentseq`) until checkpoints exist; idle steps in the editor only -- 0054: Defeatist's, set on the settings page (dim 30 s, dark 2 min, off 30 min out of the box), dark a fade, the off pulse M5Unified's toggle, and its low-battery off at 6.3 V. **Not yet:** background sends and checkpoints (section 6), the highlight-mode picker and TeX highlighting, setting the clock. The sections below are the design, built or not.
 
 ## 1. Hard constraints
 

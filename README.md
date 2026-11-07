@@ -45,11 +45,13 @@ Not ready for human consumption yet. `writerdeck_spec.md` is the design;
   and Ctrl+-, or Command, while writing), all kept across power-offs; and the library
   versions and licences.
 
-- **Idle** (0051): dim after 2 minutes, dark after 5 (the key that
-  wakes it is not typed), and after 20 the log flushed, exported and the
-  board powered off. With notes unsent and email set up, the RTC's alarm
-  wakes it an hour later, dark, to send them and power off again; a
-  failure tries again at twice the interval, up to 2 hours.
+- **Sleep** (0051, 0054), as Defeatist does it: dim to half after 30 s,
+  fade to dark after 2 min (the key that wakes it is not typed), and
+  after 30 min the log flushed, exported and the board powered off --
+  each a row on the settings page, Never to 2 h. A pack under 6.3 V for
+  30 s powers off too. With notes unsent and email set up, the RTC's
+  alarm wakes it an hour later, dark, to send them and power off again;
+  a failure tries again at twice the interval, up to 2 hours.
 - **Email now:** Ctrl+Enter (Command+Enter), or Send notes now in
   Settings, mails today's text to the account set up there: in the body,
   and attached as the day's `.md` with its log (`.md.h0`) beside it.

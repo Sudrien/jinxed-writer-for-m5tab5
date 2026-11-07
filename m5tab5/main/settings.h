@@ -13,6 +13,8 @@
  *                  Send test email (or Cmd+T) sends one through the
  *                  send task, its progress and result beside the button;
  *                  Send notes now (or Cmd+Enter) sends today's text (0038)
+ *   Sleep          dim, screen off and power off after, Defeatist's
+ *                  steps (0054, power.h)
  *   Attribution    the name the user's edits are credited to in the log
  *                  (0035), "user" until one is set; Change name, or
  *                  Cmd+N, opens a one-line field

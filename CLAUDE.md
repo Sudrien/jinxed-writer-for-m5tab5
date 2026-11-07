@@ -257,3 +257,4 @@ worked. A tag move keeps that line.
 - 0051 Power: idle dim, dark and power-off; the RTC alarm armed for unsent notes, and the dark wake that sends them
 - 0052 Fix: power.c's NAME_MAX, which picolibc's sys/syslimits.h already defines
 - 0053 Status line: the battery, Defeatist's words, before the word count
+- 0054 Sleep: Defeatist's dim, fade, power-off steps and low-battery off, set on the settings page
