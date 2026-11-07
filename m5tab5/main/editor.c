@@ -50,6 +50,7 @@
 #include "md.h"
 #include "doclog.h"
 #include "files.h"
+#include "battery.h"
 #include "kbd.h"
 #include "lcd.h"
 #include "power.h"
@@ -58,6 +59,7 @@
 #include "settings.h"
 #include "spell.h"
 #include "storage.h"
+#include "tab5io.h"
 #include "touch.h"
 
 static const char *TAG = "editor";
@@ -156,6 +158,36 @@ static char      s_send_name[FILES_NAME_MAX + 1];
 #define IDLE_DIM_PCT    (DISPLAY_BACKLIGHT / 4)
 static TickType_t s_idle_from;
 static int       s_idle;        /* 0 lit, 1 dim, 2 dark */
+
+/*
+ * 0053: the battery, before the word count, in Defeatist's words (its
+ * ui.c, 5285): NO BATT on USB-C with no pack, CHARGED when full, CHRG N%
+ * while current flows in, BATT N% on the pack, and BATT alone while the
+ * gauge has no reading. Nothing at all when there is no gauge.
+ */
+static bool s_batt_ok;
+
+static void batt_text(char *b, size_t n)
+{
+    const int pct = s_batt_ok ? battery_pct() : -1;
+    if (!s_batt_ok)              b[0] = '\0';
+    else if (battery_external()) snprintf(b, n, "NO BATT");
+    else if (pct < 0)            snprintf(b, n, "BATT");
+    else if (pct >= 100)         snprintf(b, n, "CHARGED");
+    else if (battery_charging()) snprintf(b, n, "CHRG %d%%", pct);
+    else                         snprintf(b, n, "BATT %d%%", pct);
+}
+
+/* True when the battery's words would change. */
+static bool batt_tick(void)
+{
+    static char seen[16];
+    char now[16];
+    batt_text(now, sizeof now);
+    if (!strcmp(now, seen)) return false;
+    memcpy(seen, now, sizeof seen);
+    return true;
+}
 
 /* ---- layout ----------------------------------------------------------- */
 
@@ -414,8 +446,9 @@ static void redraw(void)
      * there is nothing to type on. Spec section 5. 0047: and the open
      * note's name, before the count, while no send has a line there. */
     if (!s_bare || !kbd_present()) {     /* no keyboard: the gear is the way out */
-        char st[48];
-        snprintf(st, sizeof(st), "%lu words", (unsigned long)word_count());
+        char st[48], batt[16];
+        batt_text(batt, sizeof batt);   /* 0053 */
+        snprintf(st, sizeof(st), "%s%s%lu words", batt, batt[0] ? "  " : "", (unsigned long)word_count());
         /* Right-aligned, leaving the corner to the gear. */
         const int wx = W - settings_gear_w() - gfx_text_w(st, FOOT_SCALE);
         gfx_draw_text(wx, s_status_y, st, FOOT_SCALE, W, COL_DIM);
@@ -434,7 +467,7 @@ static void redraw(void)
     if (!kbd_present()) gfx_draw_text(MARGIN_X, s_status_y, "no keyboard", FOOT_SCALE, W, COL_DIM);
     if (s_send_line[0]) {               /* 0038: after the card's slot, up to the word count */
         const int sx = MARGIN_X + 31 * GFX_GLYPH_W(FOOT_SCALE);
-        const int room = W - settings_gear_w() - gfx_text_w("000000 words", FOOT_SCALE) - sx;
+        const int room = W - settings_gear_w() - gfx_text_w("CHRG 100%  000000 words", FOOT_SCALE) - sx;
         if (room > 0) gfx_draw_text(sx, s_status_y, s_send_line, FOOT_SCALE, room, COL_DIM);
     }
     if (s_caps)        gfx_draw_text(MARGIN_X + 15 * GFX_GLYPH_W(FOOT_SCALE), s_status_y, "caps", FOOT_SCALE, W, COL_DIM);
@@ -1955,6 +1988,8 @@ esp_err_t editor_init(void)
     if (!s_row_buf) return ESP_ERR_NO_MEM;
     measure();
     settings_on_send(send_now);         /* 0038: the settings page's button */
+    /* 0053: the gauge, allowed to be absent, as Defeatist has it. */
+    s_batt_ok = battery_init(tab5io_bus()) == ESP_OK && battery_start() == ESP_OK;
     /* 0051: how the last scheduled send went, for a while (spec 6). */
     if (power_wake_line(s_send_line, sizeof s_send_line))
         s_send_until = xTaskGetTickCount() + pdMS_TO_TICKS(SEND_SHOW_MS);
@@ -2124,6 +2159,7 @@ void editor_run(void)
         if (!held && save_tick(false)) dirty = true;
         if (!held && export_tick(false)) dirty = true;
         if (send_tick()) dirty = true;
+        if (batt_tick()) dirty = true;  /* 0053 */
         if (!held) idle_tick();         /* 0051 */
 
         if (dirty) redraw();
