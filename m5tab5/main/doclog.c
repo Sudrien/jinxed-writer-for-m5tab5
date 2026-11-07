@@ -775,20 +775,19 @@ size_t doclog_copy_log(void *buf, size_t cap, bool *too_big)
     if (!s_open || !VOL_PRESENT()) return 0;
     VOL_HOLD();
     size_t got = 0;
-    struct stat st;
-    if (stat(s_path[0], &st) == 0 && st.st_size > 0) {
-        /* st_size is the whole file's: a log is ours, and capped by
-         * `cap` well under 2 GB, so off_t holds it (CLAUDE.md's rule is
-         * for files a user brings). */
-        if ((unsigned long long)st.st_size > cap) {
-            *too_big = true;
-        } else {
-            FILE *f = fopen(s_path[0], "rb");
-            if (f) {
-                got = fread(buf, 1, (size_t)st.st_size, f);
-                if (ferror(f) || got != (size_t)st.st_size) got = 0;
-                fclose(f);
-            }
+    /* 0042: up to the end of the last record, s_end, not the file's
+     * length: the twins grow DOCLOG_GROW at a time, and 0041 sent the
+     * zeros after the records too -- 64 KB for a 1.4 KB log. A log is
+     * ours and s_end is a long, so no user-file size rule applies. */
+    const size_t want = s_end > 0 ? (size_t)s_end : 0;
+    if (want > cap) {
+        *too_big = true;
+    } else if (want) {
+        FILE *f = fopen(s_path[0], "rb");
+        if (f) {
+            got = fread(buf, 1, want, f);
+            if (ferror(f) || got != want) got = 0;
+            fclose(f);
         }
     }
     VOL_RELEASE();

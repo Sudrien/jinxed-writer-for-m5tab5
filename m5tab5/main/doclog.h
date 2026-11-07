@@ -89,9 +89,10 @@ typedef enum {
 } doclog_src_t;
 
 /*
- * 0041: the open log's first twin (h0) into `buf`, whole, for an email:
- * its length, or 0 when there is no log open, no card, it will not read,
- * or it is longer than `cap` (*too_big then true). On the caller's task,
+ * 0041: the open log's first twin (h0) into `buf`, for an email -- its
+ * header and records, without the room the file has grown past them
+ * (0042): its length, or 0 when there is no log open, no card, it will
+ * not read, or it is longer than `cap` (*too_big then true). On the caller's task,
  * which is the one that appends, so the read never meets a write.
  */
 size_t doclog_copy_log(void *buf, size_t cap, bool *too_big);

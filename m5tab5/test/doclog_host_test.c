@@ -359,7 +359,10 @@ int main(void)
             FILE *h = fopen(P0, "rb");
             const size_t m = fread(fb, 1, sizeof fb, h);
             fclose(h);
-            assert(!big && n > 64 && n == m && !memcmp(lb, fb, n));
+            assert(!big && n > 64 && n <= m && !memcmp(lb, fb, n));
+            /* 0042: up to the last record, none of the zeros after it. */
+            assert(m == 64 * 1024 && n < m);   /* grown as a card's are, and the copy stops short */
+            for (size_t z = n; z < m; z++) assert(fb[z] == 0);
             assert(doclog_copy_log(lb, n - 1, &big) == 0 && big);
             doclog_close();
             assert(doclog_copy_log(lb, sizeof lb, &big) == 0 && !big);
