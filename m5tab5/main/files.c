@@ -166,8 +166,8 @@ static void title(const char *cur)
     }
 }
 
-/* The bottom line: a note in `bad` colour when there is one; else the
- * selected note's name (0046), what the keys act on, and the keys. */
+/* The bottom line: a note in `bad` colour when there is one, else the
+ * keys. (0047: the open note's name is the editor's status line's.) */
 static void foot(const char *note, bool apple)
 {
     const int W = gfx_w(), y = foot_y(), ty = y + (foot_h() - text_h()) / 2;
@@ -179,15 +179,7 @@ static void foot(const char *note, bool apple)
     const char *keys = apple
         ? "Enter: open   Cmd+N: new   Cmd+R: rename   Cmd+Delete: trash   Esc: back"
         : "Enter: open   Ctrl+N: new   Ctrl+R: rename   Delete: trash   Esc: back";
-    const storage_ent_t *sel = chooser_sel(&s_ch);
-    int x = PAD;
-    if (sel) {
-        /* the name first, never more than half the line */
-        const int nw = gfx_text_w(sel->name, scale()), max = (W - 2 * PAD) / 2;
-        gfx_draw_text(x, ty, sel->name, scale(), max, COL_TEXT);
-        x += (nw < max ? nw : max) + 3 * GFX_GLYPH_W(scale());
-    }
-    if (x < W - PAD) gfx_draw_text(x, ty, keys, scale(), W - PAD - x, COL_DIM);
+    gfx_draw_text(PAD, ty, keys, scale(), W - 2 * PAD, COL_DIM);
 }
 
 static void draw(const char *cur, const char *note, bool apple)

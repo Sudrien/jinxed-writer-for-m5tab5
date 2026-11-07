@@ -394,13 +394,25 @@ static void redraw(void)
     gfx_fill_rect(cx - EDITOR_SCALE, cy, EDITOR_SCALE, GFX_GLYPH_H(EDITOR_SCALE), COL_CURSOR);
 
     /* The status line: word count, and only that -- plus a note when
-     * there is nothing to type on. Spec section 5. */
+     * there is nothing to type on. Spec section 5. 0047: and the open
+     * note's name, before the count, while no send has a line there. */
     if (!s_bare || !kbd_present()) {     /* no keyboard: the gear is the way out */
         char st[48];
         snprintf(st, sizeof(st), "%lu words", (unsigned long)word_count());
         /* Right-aligned, leaving the corner to the gear. */
-        gfx_draw_text(W - settings_gear_w() - gfx_text_w(st, FOOT_SCALE), s_status_y, st, FOOT_SCALE, W, COL_DIM);
+        const int wx = W - settings_gear_w() - gfx_text_w(st, FOOT_SCALE);
+        gfx_draw_text(wx, s_status_y, st, FOOT_SCALE, W, COL_DIM);
         settings_draw_gear();
+        if (!s_send_line[0] && s_name[0]) {
+            /* after the card's slot, up to three cells short of the count */
+            const int sx = MARGIN_X + 31 * GFX_GLYPH_W(FOOT_SCALE);
+            const int end = wx - 3 * GFX_GLYPH_W(FOOT_SCALE);
+            const int nw = gfx_text_w(s_name, FOOT_SCALE);
+            if (end > sx) {
+                const int nx = end - nw > sx ? end - nw : sx;
+                gfx_draw_text(nx, s_status_y, s_name, FOOT_SCALE, end - nx, COL_DIM);
+            }
+        }
     }
     if (!kbd_present()) gfx_draw_text(MARGIN_X, s_status_y, "no keyboard", FOOT_SCALE, W, COL_DIM);
     if (s_send_line[0]) {               /* 0038: after the card's slot, up to the word count */

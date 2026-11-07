@@ -250,3 +250,4 @@ worked. A tag move keeps that line.
 - 0044 File mode: the notes page, Cmd+O; new, rename, trash; Daily or File in settings
 - 0045 Keys: Cmd+N in the editor names a new note
 - 0046 Notes page: Cmd+R renames, no F2; the selected note named in the footer
+- 0047 Status line: the open note's name; the notes page's footer back to keys

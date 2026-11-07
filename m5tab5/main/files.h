@@ -3,8 +3,7 @@
  * runs in, and the page that lists the notes and opens, makes, renames
  * and deletes them.
  *
- * 0046: no F keys here -- they are the editor's -- and the bottom line
- * names the note the keys would act on.
+ * 0046: no F keys here -- they are the editor's.
  *
  * The page is feckless_chooser over DOCLOG_DIR: the notes (.md, .txt,
  * .tex) newest first, with sizes and dates; the logs are dotfiles and
