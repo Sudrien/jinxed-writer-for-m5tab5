@@ -29,6 +29,7 @@
 #include "mailcfg.h"
 #include "mailform.h"
 #include "doclog.h"
+#include "files.h"
 #include "nvs_handler.h"
 #include "sender.h"
 
@@ -360,6 +361,7 @@ typedef struct {
     int theme_y;                /* the first row of the four themes */
     int size_y;                 /* the row of text sizes */
     int md_y;                   /* Markdown / None (0031) */
+    int mode_y;                 /* Daily / File (0044) */
     int name_y;                 /* Change name (0035) */
     int libs_y;                 /* first library row */
     int total_h;
@@ -530,6 +532,23 @@ static page_t layout(bool draw, int scroll)
     TXT(y, "**bold**, *italic*, ~~struck~~, `code`, # headings.", COL_DIM);
     y += LINE_H + SECTION_GAP;
 
+    /* Mode (0044, spec 7): daily or file, from the next power-on. */
+    RULE(y - SECTION_GAP / 2);
+    TXT(y, "Mode", COL_TEXT);
+    y += LINE_H + 8;
+    p.mode_y = y;
+    if (draw) {
+        button(PAD, off + y, bw, BTN_H, "Daily", files_mode() == FILES_DAILY ? COL_GO : COL_BTN);
+        button(PAD + bw + PAD / 2, off + y, bw, BTN_H, "File", files_mode() == FILES_FILE ? COL_GO : COL_BTN);
+    }
+    y += BTN_H + 16;
+    TXT(y, files_mode() == FILES_FILE ? "Power-on opens the note last opened."
+                                      : "Power-on opens today's note.", COL_DIM);
+    y += LINE_H;
+    TXT(y, kbd_apple() ? "Command+O lists the notes, either way." : "Ctrl+O lists the notes, either way.",
+        COL_DIM);
+    y += LINE_H + SECTION_GAP;
+
     /* Attribution (0035) */
     RULE(y - SECTION_GAP / 2);
     TXT(y, "Attribution", COL_TEXT);
@@ -687,6 +706,9 @@ void settings_page(void)
                     }
                 } else if (in_rect(in.x, cy, PAD, p.name_y, bw, BTN_H)) {
                     name_form();
+                } else if (cy >= p.mode_y && cy < p.mode_y + BTN_H) {
+                    if (in_rect(in.x, cy, PAD, p.mode_y, bw, BTN_H)) files_set_mode(FILES_DAILY);
+                    else if (in_rect(in.x, cy, PAD + bw + PAD / 2, p.mode_y, bw, BTN_H)) files_set_mode(FILES_FILE);
                 } else if (cy >= p.md_y && cy < p.md_y + BTN_H) {
                     if (in_rect(in.x, cy, PAD, p.md_y, bw, BTN_H)) display_set_markdown(true);
                     else if (in_rect(in.x, cy, PAD + bw + PAD / 2, p.md_y, bw, BTN_H)) display_set_markdown(false);

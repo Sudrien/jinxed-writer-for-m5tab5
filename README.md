@@ -33,6 +33,9 @@ Not ready for human consumption yet. `writerdeck_spec.md` is the design;
   comes from
   [jinxed-writer-spellcheck-dictionaries](https://github.com/Sudrien/jinxed-writer-spellcheck-dictionaries)
   over Wi-Fi, resumes where it stopped, and is checked before it is used.
+- **Notes** (Ctrl+O, Command+O): every note in `jinxed/`, newest first, to open,
+  make, rename or put in `jinxed/trash/`. Settings, Mode: Daily opens
+  today's at power-on, File the one last opened.
 - **Markdown**, drawn as you type: bold, italic, strikethrough, `code`
   and headings, the markers kept and dim. Off in Settings, Highlighting.
 - **F1** shows the keys for the keyboard plugged in, **F11** a bare page
@@ -49,7 +52,7 @@ Not ready for human consumption yet. `writerdeck_spec.md` is the design;
 ## Not yet
 
 Scheduled and background email sends, sleep with the RTC alarm, idle dim
-and power-off, file mode, the highlight-mode picker and TeX, setting the clock. The spec describes each.
+and power-off, the highlight-mode picker and TeX, setting the clock. The spec describes each.
 
 ## Building
 

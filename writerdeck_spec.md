@@ -4,7 +4,7 @@ A discreet capture device for getting notes down where a phone shouldn't come ou
 
 Priorities, in order: **never lose a word**, **instant to a cursor**, **discreet**, **battery life**.
 
-**Built so far** (0001-0019): the editor in daily mode, the mirrored log with recovery and export (section 4), the spelling check and its dictionary download (section 5), and the settings page's email account, test email, rotation and library table (section 7). **Not yet:** the power model and scheduled sends (sections 2, 3), background sends and checkpoints (section 6), idle dim and power-off, file mode, the highlight-mode picker and TeX highlighting, setting the clock. The sections below are the design, built or not.
+**Built so far** (0001-0044): the editor in daily mode and file mode's notes page (section 5), the mirrored log with recovery and export (section 4), the spelling check and its dictionary download (section 5), and the settings page's email account, test email, rotation and library table (section 7). **Not yet:** the power model and scheduled sends (sections 2, 3), background sends and checkpoints (section 6), idle dim and power-off, the highlight-mode picker and TeX highlighting, setting the clock. The sections below are the design, built or not.
 
 ## 1. Hard constraints
 
@@ -92,7 +92,7 @@ power on
 
 ## 5. Modes and the editor
 
-**Daily mode:** one file per date, `YYYY-MM-DD.md`. Opening lands the cursor at the end of today's file, with an auto-inserted time marker if there has been a gap. Midnight rollover: keep appending to the previous day until a typing pause, so a thought is never split. **File mode:** basic management only: new, open (recent first), rename, delete (to trash), show size and last-modified.
+**Daily mode:** one file per date, `YYYY-MM-DD.md`. Opening lands the cursor at the end of today's file, with an auto-inserted time marker if there has been a gap. Midnight rollover: keep appending to the previous day until a typing pause, so a thought is never split. **File mode:** basic management only: new, open (recent first), rename, delete (to trash), show size and last-modified. *Built (0044):* the notes page, Cmd+O in either mode: feckless_chooser (9012) over `jinxed/`, the notes (`.md`, `.txt`, `.tex`) newest first with size and date, conflict files dim, folders (the trash, the dictionary) and the logs' dotfiles never shown. Enter or a tap opens; Cmd+N names a new note; F2 or Cmd+R renames; Delete, or Cmd+Delete on an Apple keyboard, moves to `jinxed/trash/` once Y is pressed; Esc or Cmd+O goes back. A note is its export, both twins, the sidecar and its conflict file, and they move together (`doclog_rename()`, `doclog_trash()`: the logs before the export, so a cut leaves the text under both names, never none; a name already in the trash gets `-2`). A name is letters, digits, space and `- _ . ( ) ' ,`, up to 48 bytes, `.md` added when it has none of the three. The page waits while the editor has text the card does not, and the editor keeps its cursor and undo when it comes back to the same note unchanged. In file mode, power-on opens the note last opened, kept in NVS (`jinxed`, `file`), or `notes.md`; daily mode still opens today's, whatever Cmd+O opened before.
 
 Which mode the device runs in is chosen on the **settings page** (section 7) and stored in NVS. There is no boot-time hotkey.
 
@@ -151,6 +151,7 @@ Which mode the device runs in is chosen on the **settings page** (section 7) and
 | **The document and the app** | | | |
 | Check spelling (above) | F7 | Command+;, or F7 | ✓ |
 | Settings | Ctrl+, (VS Code's) | Command+, | ✓ |
+| The notes: open, new, rename, delete (0044) | Ctrl+O | Command+O | ✓ |
 | Text larger / smaller, number row or keypad (0022) | Ctrl+= / Ctrl+- | Command+= / Command+- | ✓ |
 | Save now (flush the log, then export) | Ctrl+S | Command+S | ✓ |
 | Find; next / previous (0039) | Ctrl+F; F3 / Shift+F3 | Command+F; Command+G / Command+Shift+G, or F3 / Shift+F3 | ✓ |
@@ -203,7 +204,7 @@ A dark wake cannot show a message. Its outcome (a result code and time, a few by
 ## 7. Settings page
 
 Reached from a **gear icon** (touch) and also from the keyboard. At minimum:
-- Mode select: **Daily** or **File**
+- Mode select: **Daily** or **File** -- *built (0044):* two buttons, kept in NVS (`jinxed`, `mode`), daily out of the box, from the next power-on
 - Daily-mode flush interval (default 1 h; 2 h backoff cap is fixed)
 - Highlight mode for the current document (none / markdown+math / TeX)
 - **Which way up** (0019): Landscape, Landscape flipped, Portrait, Portrait flipped -- four buttons, the current one lit; a tap turns the screen and the touch at once, and the angle is kept in NVS (namespace `jinxed`) and applied from the first frame of the next boot. Landscape out of the box. The editor re-measures its columns and rows on leaving the page. Narrow, the page and the spelling pane wrap what does not fit: the spelling legend breaks between its keys, the status lines take two lines, a library is two lines (its name, then checkout and licence), and the typing field scrolls with its cursor.

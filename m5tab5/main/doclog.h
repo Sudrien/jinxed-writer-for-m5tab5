@@ -165,6 +165,30 @@ int doclog_author_id(const char *name);
  */
 esp_err_t doclog_verify(void);
 
+/*
+ * 0044: a document's files, as one -- the export, both twins, the
+ * sidecar and the conflict file (name.conflict.ext) -- for file mode.
+ * Never on the open log's document (doclog_close() first):
+ * ESP_ERR_INVALID_STATE.
+ *
+ * doclog_exists(): whether the export or either twin is there.
+ *
+ * doclog_rename(): every file of `from` that is there to `to`'s name.
+ * ESP_ERR_INVALID_STATE if `to` has any file already, ESP_ERR_NOT_FOUND
+ * if `from` has none. The twins and the sidecar go before the export, so
+ * a power cut part way leaves the text under both names -- the export
+ * under `from` imports as a document of its own -- and never under none.
+ *
+ * doclog_trash(): every file of `name` into DOCLOG_DIR/trash, made if it
+ * is not there (spec 4: delete moves, never erases). A name already in
+ * the trash keeps its file; this one gets "-2", "-3"... before its
+ * extension, each of its files the same. Nothing is erased.
+ */
+bool doclog_exists(const char *name);
+esp_err_t doclog_rename(const char *from, const char *to);
+esp_err_t doclog_trash(const char *name);
+#define DOCLOG_TRASH        "trash"
+
 /* Forget the open log. Files are untouched. */
 void doclog_close(void);
 

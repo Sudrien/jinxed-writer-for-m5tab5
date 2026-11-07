@@ -49,6 +49,7 @@
 #include "display.h"
 #include "md.h"
 #include "doclog.h"
+#include "files.h"
 #include "kbd.h"
 #include "rtc8130.h"
 #include "sender.h"
@@ -121,7 +122,7 @@ static char     *s_row_buf;     /* one line, NUL-terminated, for gfx */
 /* Saving. See the top of the file. */
 static char     *s_base;        /* TEXT_MAX bytes, PSRAM */
 static uint32_t  s_base_len;
-static char      s_name[32];    /* "2026-11-02.md" */
+static char      s_name[FILES_NAME_MAX + 1];    /* "2026-11-02.md"; 0044: or file mode's */
 static bool      s_pending;     /* s_text may differ from s_base */
 static doclog_src_t s_src;      /* who made what is pending */
 static doclog_src_t s_edit_src = DOCLOG_SRC_USER;  /* who is editing now */
@@ -617,9 +618,14 @@ static bool send_tick(void)
 }
 
 /* The day's file name, from the RTC. Fixed for the session for now;
- * midnight rollover (spec 5) is later. */
+ * midnight rollover (spec 5) is later. 0044: in file mode, the note
+ * last opened, or notes.md when there is none. */
 static void pick_name(void)
 {
+    if (files_mode() == FILES_FILE) {
+        if (!files_last(s_name, sizeof s_name)) strcpy(s_name, FILES_DEFAULT);
+        return;
+    }
     int64_t now;
     if (!rtc_now(&now)) {
         strcpy(s_name, "undated.md");
@@ -630,6 +636,66 @@ static void pick_name(void)
     gmtime_r(&tt, &tm);
     snprintf(s_name, sizeof(s_name), "%04d-%02d-%02d.md",
              tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
+}
+
+/*
+ * 0044: Cmd+O. The text is flushed and exported, the log let go, and the
+ * notes page (files.h) shown; after it, the note it chose, or this one
+ * again -- renamed, perhaps, or gone to the trash. Not with text the card
+ * does not have yet: that would be left behind in RAM.
+ */
+static void doc_reset(const char *name)
+{
+    snprintf(s_name, sizeof s_name, "%s", name);
+    s_len = s_cur = s_base_len = 0;
+    s_anchor = NO_ANCHOR;
+    s_want_col = -1;
+    s_top = 0;
+    s_md_from = UINT32_MAX;
+    undo_clear();
+    s_ever_open = false;
+    s_export_due = false;
+    s_conflict = false;
+    s_save_failed = false;
+    s_attach_after = 0;
+    if (files_mode() == FILES_FILE) files_set_last(s_name);
+}
+
+static void open_files(bool apple)
+{
+    save_tick(true);
+    export_tick(true);
+    if (s_pending || !doclog_is_open()) {
+        snprintf(s_send_line, sizeof s_send_line, "not saved yet; the notes wait for the card");
+        s_send_until = xTaskGetTickCount() + pdMS_TO_TICKS(SEND_SHOW_MS);
+        return;
+    }
+    char cur[FILES_NAME_MAX + 1];
+    snprintf(cur, sizeof cur, "%s", s_name);
+    doclog_close();
+    const files_result_t r = files_page(cur, sizeof cur, apple);
+    if (r == FILES_STAY && !strcmp(cur, s_name)) {
+        /* the same note: open its log again, and keep the cursor and
+         * the undo history if it is the text we have */
+        int64_t now;
+        const bool now_ok = rtc_now(&now);
+        uint32_t rl = 0;
+        if (doclog_open(s_name, s_base, &rl, now, now_ok) == ESP_OK && rl == s_len &&
+            !memcmp(s_base, s_text, rl)) {
+            s_base_len = rl;
+            s_gen = storage_generation();
+            return;
+        }
+        doclog_close();
+    }
+    if (!cur[0]) {
+        /* this one went to the trash: today's, or file mode's first */
+        pick_name();
+        if (files_mode() == FILES_FILE) strcpy(s_name, FILES_DEFAULT);
+        snprintf(cur, sizeof cur, "%s", s_name);
+    }
+    doc_reset(cur);
+    attach();
 }
 
 /* ---- editing ---------------------------------------------------------- */
@@ -1572,7 +1638,7 @@ static const sheet_row_t k_keys_pc[] = {
     { "Ctrl+S; Ctrl+Enter",      "save now; email notes" },
     { "F7",                      "check spelling" },
     { "Ctrl+= / Ctrl+-",         "text larger / smaller" },
-    { "Ctrl+,",                  "settings" },
+    { "Ctrl+,; Ctrl+O",          "settings; notes" },
     { "F1 / F11 / F12",          "keys / bare page / stats" },
 };
 static const sheet_row_t k_keys_apple[] = {
@@ -1591,7 +1657,7 @@ static const sheet_row_t k_keys_apple[] = {
     { "Command+S; Command+Enter", "save now; email notes" },
     { "Command+; or F7",         "check spelling" },
     { "Command+= / Command+-",   "text larger / smaller" },
-    { "Command+,",               "settings" },
+    { "Command+,; Command+O",    "settings; notes" },
     { "F1 / F11 / F12",          "keys / bare page / stats" },
 };
 #define SHEET_SCALE     (2)
@@ -1668,7 +1734,7 @@ static void stats_sheet(void)
         else if (((unsigned char)s_text[i] & 0xC0) != 0x80) col++;
     }
     const uint32_t words = word_count();
-    static char v[9][48];
+    static char v[9][FILES_NAME_MAX + 8];      /* 0044: a name as long as file mode makes */
     snprintf(v[0], sizeof v[0], "%s", s_name[0] ? s_name : "(none yet)");
     snprintf(v[1], sizeof v[1], "%lu", (unsigned long)words);
     snprintf(v[2], sizeof v[2], "%lu", (unsigned long)chars);
@@ -1913,6 +1979,11 @@ void editor_run(void)
             } else if (ev.down && ev.cmd && (ev.usage == KBD_ENTER || ev.usage == KBD_KP_ENTER)) {
                 held = 0;               /* 0038: send now, Cmd+Enter (spec 5) */
                 send_now();
+                dirty = true;
+            } else if (ev.down && ev.cmd && ev.usage == KBD_O) {
+                held = 0;               /* 0044: the notes */
+                open_files(ev.apple);
+                touch_down = false;
                 dirty = true;
             } else if (ev.down && ev.usage == KBD_COMMA && ev.cmd) {
                 open_settings = true;       /* spec 7: from the keyboard too */

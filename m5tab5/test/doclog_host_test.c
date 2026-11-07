@@ -370,6 +370,54 @@ int main(void)
         puts("export: ok");
     }
 
+    /* 0044: a document's files as one -- rename and the trash. */
+    {
+        uint32_t len;
+        assert(doclog_open("a.md", got, &len, 1700000000, true) == 0);
+        assert(doclog_append(got, len, "alpha", 5, 1, true, DOCLOG_SRC_USER, NULL) == 0);
+        assert(doclog_export("alpha", 5, NULL, 0, false, "T") == 0);
+        put_file("sd/a.conflict.md", "theirs");
+        /* not while it is open */
+        assert(doclog_rename("a.md", "b.md") == ESP_ERR_INVALID_STATE);
+        assert(doclog_trash("a.md") == ESP_ERR_INVALID_STATE);
+        doclog_close();
+        assert(doclog_exists("a.md") && !doclog_exists("b.md"));
+        /* not over another document, nor from none, nor a bad name */
+        put_file("sd/c.md", "c");
+        assert(doclog_rename("a.md", "c.md") == ESP_ERR_INVALID_STATE);
+        assert(doclog_rename("zz.md", "y.md") == ESP_ERR_NOT_FOUND);
+        assert(doclog_rename("a.md", "../x.md") == ESP_ERR_INVALID_ARG);
+        assert(doclog_rename("a.md", ".h.md") == ESP_ERR_INVALID_ARG);
+        assert(fsize("sd/a.md") > 0);
+        /* every file goes, and the log opens under its new name */
+        assert(doclog_rename("a.md", "b.md") == 0);
+        assert(fsize("sd/a.md") < 0 && fsize("sd/.a.md.h0") < 0 && fsize("sd/.a.md.h1") < 0 &&
+               fsize("sd/.a.md.x") < 0 && fsize("sd/a.conflict.md") < 0);
+        assert(fsize("sd/.b.md.h0") > 0 && fsize("sd/.b.md.h1") > 0 && fsize("sd/.b.md.x") > 0 &&
+               file_is("sd/b.conflict.md", "theirs"));
+        assert(doclog_open("b.md", got, &len, 1700000000, true) == 0);
+        assert(len == 5 && !memcmp(got, "alpha", 5));
+        assert(doclog_export("alpha", 5, NULL, 0, false, "T") == 0);   /* its own, no conflict */
+        doclog_close();
+        /* the trash: everything moved, nothing erased; a second of the
+         * same name beside the first */
+        assert(doclog_trash("b.md") == 0);
+        assert(!doclog_exists("b.md") && fsize("sd/b.conflict.md") < 0);
+        assert(fsize("sd/" DOCLOG_TRASH "/b.md") > 0 && fsize("sd/" DOCLOG_TRASH "/.b.md.h0") > 0 &&
+               file_is("sd/" DOCLOG_TRASH "/b.conflict.md", "theirs"));
+        put_file("sd/b.md", "again");
+        assert(doclog_trash("b.md") == 0);
+        assert(file_is("sd/" DOCLOG_TRASH "/b-2.md", "again") && fsize("sd/" DOCLOG_TRASH "/b.md") > 0);
+        assert(doclog_trash("b.md") == ESP_ERR_NOT_FOUND);
+        /* what is in the trash is a document there, whole */
+        assert(doclog_open(DOCLOG_TRASH "_probe.md", got, &len, 1, true) == 0);    /* a bystander */
+        doclog_close();
+        assert(doclog_trash(DOCLOG_TRASH "_probe.md") == 0);
+        int r = system("rm -rf sd/" DOCLOG_TRASH " sd/c.md");
+        (void)r;
+        puts("files: ok");
+    }
+
     printf("ok: %d damage trials, %d twins repaired\n", trials, repaired);
     wipe();
     return 0;

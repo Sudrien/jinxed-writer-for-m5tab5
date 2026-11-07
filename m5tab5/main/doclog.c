@@ -866,3 +866,123 @@ esp_err_t doclog_verify(void)
     s_open = false;
     return ESP_ERR_INVALID_STATE;
 }
+
+/* ---- a document's files, for file mode (0044) ----------------------------- */
+
+/* The files of `name`, in the order they move: the twins and the sidecar
+ * before the export, the conflict file last. */
+#define DOC_FILES   (5)
+
+static bool doc_paths(const char *dir, const char *name, char out[DOC_FILES][PATH_MAX_LEN + 16])
+{
+    if (!name || !name[0] || name[0] == '.' || strchr(name, '/')) return false;
+    const char *dot = strrchr(name, '.');
+    const int stem = dot ? (int)(dot - name) : (int)strlen(name);
+    const int n[DOC_FILES] = {
+        snprintf(out[0], PATH_MAX_LEN + 16, "%s/.%s%s", dir, name, DOCLOG_SUFFIX0),
+        snprintf(out[1], PATH_MAX_LEN + 16, "%s/.%s%s", dir, name, DOCLOG_SUFFIX1),
+        snprintf(out[2], PATH_MAX_LEN + 16, "%s/.%s.x", dir, name),
+        snprintf(out[3], PATH_MAX_LEN + 16, "%s/%s", dir, name),
+        snprintf(out[4], PATH_MAX_LEN + 16, "%s/%.*s.conflict%s", dir, stem, name, dot ? dot : ""),
+    };
+    for (int i = 0; i < DOC_FILES; i++)
+        if (n[i] < 0 || n[i] >= PATH_MAX_LEN) return false;
+    return true;
+}
+
+static bool there(const char *p)
+{
+    struct stat st;
+    return stat(p, &st) == 0;
+}
+
+/* The open log's document? */
+static bool is_open_doc(const char *exp)
+{
+    return s_open && strcmp(exp, s_exp) == 0;
+}
+
+/* A file's working copy: the paths, off the stack (PATH_MAX_LEN each). */
+static char s_pa[DOC_FILES][PATH_MAX_LEN + 16], s_pb[DOC_FILES][PATH_MAX_LEN + 16];
+
+bool doclog_exists(const char *name)
+{
+    if (!doc_paths(DOCLOG_DIR, name, s_pa)) return false;
+    VOL_HOLD();
+    const bool r = VOL_PRESENT() && (there(s_pa[0]) || there(s_pa[1]) || there(s_pa[3]));
+    VOL_RELEASE();
+    return r;
+}
+
+esp_err_t doclog_rename(const char *from, const char *to)
+{
+    if (!doc_paths(DOCLOG_DIR, from, s_pa) || !doc_paths(DOCLOG_DIR, to, s_pb)) return ESP_ERR_INVALID_ARG;
+    if (is_open_doc(s_pa[3]) || is_open_doc(s_pb[3])) return ESP_ERR_INVALID_STATE;
+    VOL_HOLD();
+    esp_err_t err = ESP_OK;
+    if (!VOL_PRESENT()) { err = ESP_ERR_INVALID_STATE; goto out; }
+    for (int i = 0; i < DOC_FILES; i++)
+        if (there(s_pb[i])) { err = ESP_ERR_INVALID_STATE; goto out; }
+    int moved = 0, had = 0;
+    for (int i = 0; i < DOC_FILES; i++) {
+        if (!there(s_pa[i])) continue;
+        had++;
+        if (rename(s_pa[i], s_pb[i]) != 0) {
+            ESP_LOGW(TAG, "rename %s: errno %d", s_pa[i], errno);
+            err = ESP_FAIL;
+            goto out;
+        }
+        if (i < 3) MARK_HIDDEN(s_pb[i]);
+        moved++;
+    }
+    if (!had) err = ESP_ERR_NOT_FOUND;
+    else ESP_LOGI(TAG, "renamed %s to %s, %d files", from, to, moved);
+out:
+    VOL_RELEASE();
+    return err;
+}
+
+esp_err_t doclog_trash(const char *name)
+{
+    if (!doc_paths(DOCLOG_DIR, name, s_pa)) return ESP_ERR_INVALID_ARG;
+    if (is_open_doc(s_pa[3])) return ESP_ERR_INVALID_STATE;
+    const char *dot = strrchr(name, '.');
+    const int stem = dot ? (int)(dot - name) : (int)strlen(name);
+    char dir[PATH_MAX_LEN], tname[PATH_MAX_LEN];
+    snprintf(dir, sizeof dir, "%s/%s", DOCLOG_DIR, DOCLOG_TRASH);
+
+    VOL_HOLD();
+    esp_err_t err = ESP_OK;
+    if (!VOL_PRESENT()) { err = ESP_ERR_INVALID_STATE; goto out; }
+    int had = 0;
+    for (int i = 0; i < DOC_FILES; i++) had += there(s_pa[i]);
+    if (!had) { err = ESP_ERR_NOT_FOUND; goto out; }
+    if (mkdir(dir, 0777) != 0 && errno != EEXIST) {
+        ESP_LOGW(TAG, "mkdir %s: errno %d", dir, errno);
+        err = ESP_FAIL;
+        goto out;
+    }
+    /* the first name free in the trash, for every one of its files */
+    int k = 1;
+    for (;; k++) {
+        if (k == 1) snprintf(tname, sizeof tname, "%s", name);
+        else snprintf(tname, sizeof tname, "%.*s-%d%s", stem, name, k, dot ? dot : "");
+        if (!doc_paths(dir, tname, s_pb)) { err = ESP_ERR_INVALID_ARG; goto out; }
+        bool free_here = true;
+        for (int i = 0; i < DOC_FILES && free_here; i++) free_here = !there(s_pb[i]);
+        if (free_here) break;
+        if (k > 999) { err = ESP_FAIL; goto out; }
+    }
+    for (int i = 0; i < DOC_FILES; i++) {
+        if (!there(s_pa[i])) continue;
+        if (rename(s_pa[i], s_pb[i]) != 0) {
+            ESP_LOGW(TAG, "trash %s: errno %d", s_pa[i], errno);
+            err = ESP_FAIL;
+            goto out;
+        }
+    }
+    ESP_LOGI(TAG, "%s to the trash as %s", name, tname);
+out:
+    VOL_RELEASE();
+    return err;
+}
