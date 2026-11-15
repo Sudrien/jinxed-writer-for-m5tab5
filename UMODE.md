@@ -913,3 +913,34 @@ counts the new name. Three changes are each caught: no size check (three
 failures), no pointer check (ASan), the name left out of
 `jinxed_calls.txt`. `jbox_calls.c` compiles at `-O2 -Wall -Werror=all
 -Wextra -Werror=extra`. *Not checked:* an ESP-IDF build; a board.
+
+## u-jinxed-0017 -- doclog: the log's path and end, for a boxed send
+
+The editor sends with `sender_send_doc(..., doclog_copy_log)`, and the
+sender calls `doclog_copy_log()` on its own task to copy the log. In a
+box that function is the box's, so the host cannot call it.
+`jinxed_send_doc` (0013) has the host read the log itself instead,
+given the twin's path and how many bytes to read. Until now only doclog
+knew those: `s_path[0]` and `s_end`, both static.
+
+- `doclog_log_path(&end)`: the open log's first twin, and the end of its
+  last record, which are exactly what `doclog_copy_log()` reads. NULL
+  and 0 when no log is open. The ELF's `sender_send_doc` (0018) passes
+  them to `jinxed_send_doc`, and the host's reading of them is 0013's
+  `log_from_card()`, held to `/sd/jinxed`.
+- The writer does not call it. Main's doclog.c gains the function and
+  nothing else changes.
+
+One difference from the writer: `doclog_copy_log()` reads when the
+sender gets to it, while the path and end are taken when the editor asks
+for the send. The sender copies the log before `sender_send_doc()`
+returns (0013), and the editor appends only on its own task, which is
+blocked in that call. So the two read the same bytes.
+
+*Checked:* `./test/run.sh`, all passing. The export test now also asks
+for the path and end beside its `doclog_copy_log()` and finds the same
+file and the same length, and NULL and 0 after the close. Two changes
+are each caught: the end left as it was after a close, and the path
+returned with no log open. doclog.c compiles at `-O2 -Wall -Werror=all
+-Wextra -Werror=extra` against feckless-libs' headers at bf2e864 and
+stand-ins for ESP-IDF's. *Not checked:* an ESP-IDF build; a board.

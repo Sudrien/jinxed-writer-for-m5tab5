@@ -364,8 +364,13 @@ int main(void)
             assert(m == 64 * 1024 && n < m);   /* grown as a card's are, and the copy stops short */
             for (size_t z = n; z < m; z++) assert(fb[z] == 0);
             assert(doclog_copy_log(lb, n - 1, &big) == 0 && big);
+            /* u-jinxed-0017: the same file and length, for a boxed send */
+            long end = -1;
+            const char *lp = doclog_log_path(&end);
+            assert(lp && !strcmp(lp, P0) && end == (long)n);
             doclog_close();
             assert(doclog_copy_log(lb, sizeof lb, &big) == 0 && !big);
+            assert(doclog_log_path(&end) == NULL && end == 0);
         }
         puts("export: ok");
     }

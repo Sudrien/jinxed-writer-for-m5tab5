@@ -294,3 +294,4 @@ worked. A tag move keeps that line.
 - u-jinxed-0014 boxlog: the manifest names feckless_nvs_handler
 - u-jinxed-0015 Power: a power-off that does not happen is said, not silent (main's code)
 - u-jinxed-0016 jinxed_box: the theme's colours, an own call for the box's COL_*
+- u-jinxed-0017 doclog: the log's path and end, for a boxed send

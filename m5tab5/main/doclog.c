@@ -794,6 +794,12 @@ size_t doclog_copy_log(void *buf, size_t cap, bool *too_big)
     return got;
 }
 
+const char *doclog_log_path(long *end)
+{
+    *end = s_open && s_end > 0 ? s_end : 0;
+    return s_open ? s_path[0] : NULL;
+}
+
 int doclog_author_id(const char *name)
 {
     if (!name || !name[0]) return 0;

@@ -97,6 +97,12 @@ typedef enum {
  */
 size_t doclog_copy_log(void *buf, size_t cap, bool *too_big);
 
+/* u-jinxed-0017: what doclog_copy_log() would read -- the open log's first
+ * twin and the end of its last record, in *end -- for a boxed editor's
+ * send, whose host reads the log itself (UMODE.md, 0013). NULL, and *end
+ * 0, when no log is open. The path is doclog's, until the next open. */
+const char *doclog_log_path(long *end);
+
 /* 0038: the export's footer (0037) on its own, for an email's body:
  * at most DOCLOG_FOOT_MAX bytes, NUL-terminated, into `f`. Its length. */
 #define DOCLOG_FOOT_MAX     (160)
