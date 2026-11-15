@@ -74,6 +74,11 @@ typedef struct {
     int  (*display_foot_scale)(void);
     void (*display_set_text_scale)(int scale);
     bool (*display_markdown)(void);
+    /* u-jinxed-0016: the theme's colours, for the box's COL_*: the writer's
+     * display_col (&display_col) and sizeof (display_theme_t). A variable,
+     * not a function, since that is what display.h has; read at each call. */
+    const void *const *display_col;
+    size_t display_col_size;
 } jinxed_host_t;
 void jinxed_box_host(const jinxed_host_t *h);
 

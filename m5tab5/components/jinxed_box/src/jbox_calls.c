@@ -27,6 +27,10 @@
  *                                      page returns 1 when "send now" is
  *                                      asked for, 0 when it is left; the
  *                                      shim sends and opens it again.
+ *   jinxed_display_col(buf, size)      u-jinxed-0016: COL_* reads
+ *                                      display_col, a host pointer; this
+ *                                      copies the theme it points at into
+ *                                      the shim's own, by value.
  *
  * The host's functions come through jinxed_box_host(), from the writer's
  * main: this component cannot require main, and a test gives stand-ins.
@@ -256,6 +260,22 @@ H(c_display_foot_scale)     { (void)w; (void)a; *ret = s_host.display_foot_scale
 H(c_display_set_text_scale) { (void)w; if (s_host.display_set_text_scale) s_host.display_set_text_scale((int)a[0]); *ret = 0; return true; }
 H(c_display_markdown)       { (void)w; (void)a; *ret = s_host.display_markdown && s_host.display_markdown(); return true; }
 
+/* u-jinxed-0016: (buf, size): the theme display_col points at now, copied
+ * whole into the app's display_theme_t; 1 if it was. size must be the
+ * host's sizeof, so an ELF built against another layout gets nothing
+ * rather than colours from the wrong fields. */
+H(c_jinxed_display_col)
+{
+    *ret = 0;
+    if (!s_host.display_col || !*s_host.display_col || s_host.display_col_size == 0 ||
+        a[1] != s_host.display_col_size || !ok_ptr(w, a[0], a[1])) {
+        return true;
+    }
+    memcpy((void *)(uintptr_t)a[0], *s_host.display_col, s_host.display_col_size);
+    *ret = 1;
+    return true;
+}
+
 /* ---- the table --------------------------------------------------------- */
 
 static const uint32_t s_calls_v1 = 1;       /* jinxed_calls_v1 */
@@ -275,6 +295,7 @@ static const feckless_umode_call_t s_own[] = {
     FN(settings_draw_gear), FN(settings_gear_w), FN(settings_gear_hit),
     FN(jinxed_settings_author), FNU(jinxed_settings_page),
     FN(display_text_scale), FN(display_foot_scale), FN(display_set_text_scale), FN(display_markdown),
+    FN(jinxed_display_col),
 };
 
 const feckless_umode_call_t *jinxed_box_own_calls(uint32_t *n)

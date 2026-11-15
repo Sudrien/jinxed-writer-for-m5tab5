@@ -167,6 +167,9 @@ static int h_text_scale(void) { return h_scale; }
 static int h_foot_scale(void) { return 1; }
 static void h_set_text_scale(int s) { h_scale = s; }
 static bool h_md(void) { return true; }
+typedef struct { uint16_t bg, text, dim; } h_theme_t;    /* any layout: copied whole */
+static const h_theme_t h_themes[2] = { { 1, 2, 3 }, { 4, 5, 6 } };
+static const h_theme_t *h_col = &h_themes[0];
 
 static const jinxed_host_t s_fake_host = {
     .kbd_get = h_kbd_get, .kbd_present = h_kbd_present, .kbd_ascii = h_kbd_ascii,
@@ -179,6 +182,7 @@ static const jinxed_host_t s_fake_host = {
     .settings_close = h_close,
     .display_text_scale = h_text_scale, .display_foot_scale = h_foot_scale,
     .display_set_text_scale = h_set_text_scale, .display_markdown = h_md,
+    .display_col = (const void *const *)&h_col, .display_col_size = sizeof(h_theme_t),
 };
 
 static bool in_box(const void *p) { return (uintptr_t)p >= w.lo && (uintptr_t)p < w.hi; }
@@ -267,6 +271,17 @@ static void test_own_calls(void)
     CHECK(call("display_set_text_scale", 3, 0, 0, 0) == 0 && h_scale == 3);
     CHECK(call("display_markdown", 0, 0, 0, 0) == 1);
 
+    /* u-jinxed-0016: the theme, by value, as display_col points now */
+    h_theme_t *th = box_alloc(sizeof *th);
+    CHECK(call("jinxed_display_col", P(th), sizeof *th, 0, 0) == 1 && th->bg == 1 && th->dim == 3);
+    h_col = &h_themes[1];                                         /* the page chose another */
+    CHECK(call("jinxed_display_col", P(th), sizeof *th, 0, 0) == 1 && th->bg == 4 && th->dim == 6);
+    memset(th, 0xEE, sizeof *th);
+    CHECK(call("jinxed_display_col", P(th), sizeof *th - 2, 0, 0) == 0 && th->bg == 0xEEEE);   /* another layout */
+    CHECK(call("jinxed_display_col", P(th), sizeof *th + 2, 0, 0) == 0 && th->bg == 0xEEEE);
+    CHECK(call("jinxed_display_col", P(&h_themes[0]), sizeof *th, 0, 0) == 0);           /* not the box's */
+    CHECK(call("jinxed_display_col", P((char *)mem + MEM - 2), sizeof *th, 0, 0) == 0);
+
     /* NVS: "jinxed" only */
     char *ns_j = put_str("jinxed"), *ns_m = put_str("mail"), *key = put_str("last");
     CHECK(call("nvsh_set_u8", P(ns_j), P(key), 5, 0) == 0);
@@ -276,6 +291,7 @@ static void test_own_calls(void)
     jinxed_box_host(NULL);
     CHECK(call("kbd_get", P(ev), 0, 0, 0) == 0 && call("sender_gen", 0, 0, 0, 0) == 0);
     CHECK(call("jinxed_settings_page", 0, 0, 0, 0) == 0 && call("display_markdown", 0, 0, 0, 0) == 0);
+    CHECK(call("jinxed_display_col", P(th), sizeof *th, 0, 0) == 0 && th->bg == 0xEEEE);
     CHECK(call7("jinxed_send_doc", P(name), P(range), P(text), 13, P(foot), P(lp), 7) == 0);
 }
 

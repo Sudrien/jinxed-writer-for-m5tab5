@@ -26,3 +26,4 @@ display_text_scale
 display_foot_scale
 display_set_text_scale
 display_markdown
+jinxed_display_col

@@ -874,3 +874,42 @@ compiled in this work. editor.c was clean before the change too.
 *Not checked:* a board. To see it: with USB attached, let the alarm wake
 it with nothing to send, or set the power-off time to its shortest.
 Either should come back lit with the line, not stay dark.
+
+## u-jinxed-0016 -- the theme's colours for the box: jinxed_display_col
+
+0013's list of the editor's calls into the host was made by name, and
+missed one that is not a call. `COL_BG`, `COL_TEXT` and the rest
+(display.h) read `display_col->...`, and `display_col` is a variable in
+display.c pointing into its theme table. display.c stays on the host
+(0013), so a boxed editor would import `display_col` as data. A data
+entry in the table is copied at load, and would be a host pointer: the
+first `COL_*` would fault. Compiling editor.c, files.c, doclog.c, md.c,
+spell.c and fname.c against feckless-libs' headers and listing their
+imports finds it beside the five 0013 already gives the shim
+(`settings_author`, `settings_on_send`, `settings_page`,
+`sender_send_doc`, and the log for the send). Nothing else is
+unanswered.
+
+- `jinxed_display_col(buf, size)`, a 23rd own call: the theme
+  `display_col` points at now, copied whole into the app's
+  `display_theme_t`. The shim (0018) keeps its own `display_theme_t`
+  and points its own `display_col` at it, and asks again at start and
+  after the settings page, where the theme is chosen. The ELF reads its
+  colours from its own memory, as it draws.
+- `size` must equal the host's `sizeof (display_theme_t)`. An ELF built
+  against another layout gets nothing, and keeps the colours it had,
+  rather than colours read from the wrong fields.
+- `jinxed_host_t` gains `display_col` (the writer's `&display_col`) and
+  `display_col_size`. It is the variable, not a function, since that is
+  what display.h has. It is read at each call, so a theme chosen on the
+  page is the one copied next.
+
+*Checked:* `make -C m5tab5/components/jinxed_box/test FECKLESS=<feckless-libs
+at bf2e864>`, all passing. The test copies the theme, copies the other
+after the host's pointer moves, and refuses a size two bytes short or
+over (nothing written), a buffer that is not the box's, and one that
+runs past its end. With no host functions it answers 0. The list check
+counts the new name. Three changes are each caught: no size check (three
+failures), no pointer check (ASan), the name left out of
+`jinxed_calls.txt`. `jbox_calls.c` compiles at `-O2 -Wall -Werror=all
+-Wextra -Werror=extra`. *Not checked:* an ESP-IDF build; a board.
