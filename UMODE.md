@@ -314,3 +314,74 @@ at 6a6983c>` on the host under ASan and UBSan, over real files:
   `ff.h` exercises; the stand-in defines `FA_READ` alone.
 
 *Not checked:* an ESP-IDF build; a board.
+
+## u-jinxed-0005 -- boxlog: the log, replayed in a box and out of one
+
+Step 2 of 0001's order, the measurement, as a project of its own:
+`m5tab5/boxlog/` (README there). The writer's firmware is unchanged: a box
+needs `CONFIG_BOOTLOADER_REGION_PROTECTION_ENABLE=n`, which boxlog sets in
+its own sdkconfig and the writer does not.
+
+- Two builds of one `main/`, as Lothesome's umode branch has. The .bin is
+  `host.c` and the ELF it embeds is `elf/`. `doclog.c` and `md.c` are the
+  writer's own files, unchanged, compiled into both. Each build has its
+  own `DOCLOG_DIR`, `/sd/jinxed/boxlog/host` or `.../box`.
+- `boxlog.c`, the probe, is the same file in both. It appends 400
+  generated edits to a synthetic note as the editor logs keystrokes
+  (some under a second author, some as the spelling check's), closes the
+  note, replays it from the card and compares it with what was appended,
+  exports it, and styles its markdown. Then it copies every real note's
+  twins from `/sd/jinxed` into its own directory and opens each one,
+  which recovers and replays it. It writes one result file per run, with
+  no times in it.
+- `host.c` brings up the card as `main.c` does, without the keyboard,
+  and runs the probe natively. It then loads the ELF with
+  `jinxed_box_calls()` and runs it on core 1, logging the cause, pc and
+  ELF address on a fault. Finally it compares `host.txt` with `box.txt`
+  and logs `SAME` or `DIFFER at line N` with both lines.
+- The manifest names feckless-libs' `umode` branch: the drivers, the
+  storage handler, `feckless_abi`, `feckless_abi_storage`,
+  `feckless_box_libc`, `feckless_umode`, `feckless_box_calls`, and what
+  those require by name. `sdkconfig.defaults` adds the FatFs settings
+  that `feckless_abi_storage` checks: fast seek, dynamic buffers,
+  per-file cache, no lock, 4096-byte sectors. The writer's configuration
+  lacks fast seek and does not need it. It also turns call statistics
+  on (u-feckless-0029).
+
+What the ELF imports was checked by name first. doclog.c, md.c and
+spell.c, compiled at -O2 and listed with `nm -u`, need only names
+feckless_box_calls answers (`rewind`, `fileno`, `fsync`, `unlink`,
+`ferror`, `stat`, `rename`, `mkdir`, the brief holds, the hidden mark,
+`esp_random`), or names feckless_box_libc links into the app (`fprintf`,
+`snprintf`, `gmtime_r`, the string functions, `heap_caps_*`, `__errno`).
+That spell.c, which writes its word list with `fprintf`, needs nothing
+more means the editor's storage is now fully answered. On a board,
+`boxcheck` decides.
+
+*Checked:*
+- `make -C m5tab5/boxlog/test` on a PC, under ASan and UBSan. The probe
+  is built twice, as the .bin and the ELF build it, over notes that
+  doclog itself made: a short one, a long one with an author, one with a
+  torn second twin, one with no second twin, and a file that is not a
+  log. The two result files are identical, and identical again on a
+  repeat run. The synthetic note replays as appended, all four notes
+  open, and the source notes are byte-for-byte unchanged.
+- Three changes are each caught: a run that writes to a source note, a
+  replay comparison off by a byte, and the notes taken in a different
+  order by one side. Two of them failed to compile the first time, one
+  under `-Werror=misleading-indentation`, and were redone. The test's own
+  first version failed a correct run: its grep for failures matched the
+  result line's `failed 0`, and it now looks for the failure words
+  themselves.
+- `boxlog.c` compiles at `-O2 -Wall -Werror=all -Wextra -Werror=extra`
+  as firmware, as the ELF and on the host. The first try failed
+  `-Wformat-truncation`, the trap CLAUDE.md describes, because GCC could
+  not see that a note's name is under 256 bytes. Paths are now joined
+  with an explicit length check rather than `snprintf`. `host.c` passes
+  `-fsyntax-only` with the same flags, against feckless-libs' own headers
+  for the storage handler, drivers, umode and box calls, and stand-ins
+  for IDF's.
+
+*Not checked:* an ESP-IDF build of either side, so neither the
+ExternalProject embedding nor boxcheck has run; a board. The README's
+log is a made-up example of the format.

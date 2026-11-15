@@ -282,3 +282,4 @@ worked. A tag move keeps that line.
 - u-jinxed-0002 Manifest: feckless-libs' umode branch in place of v0.9.10
 - u-jinxed-0003 Box: the card for a boxed editor, writes included, from Jinxed's own .bin
 - u-jinxed-0004 Box: feckless's storage calls, with writes held to /sd/jinxed
+- u-jinxed-0005 boxlog: the log replayed natively and in a box, compared
