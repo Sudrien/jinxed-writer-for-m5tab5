@@ -52,3 +52,8 @@ void settings_on_send(bool (*send)(void));
 /* The page, until it is closed. Leaves the screen for the caller to
  * redraw, and swallows the press that closed it. */
 void settings_page(void);
+
+/* u-jinxed-0013: called from the settings_on_send() callback, the page
+ * returns as soon as that callback does. Jinxed's .bin uses it to hand a
+ * boxed editor "send now": the send is the editor's, in the box. */
+void settings_close(void);

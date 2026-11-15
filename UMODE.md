@@ -705,3 +705,103 @@ installed (214 failures), no `..` check, prefix only.
 `jbox_storage.c` compiles at `-O2 -Wall -Werror=all -Wextra
 -Werror=extra`. The race is feckless's to test, and its `test_filter`
 does. *Not checked:* an ESP-IDF build; a board.
+
+## u-jinxed-0013 -- the boundary, host side: Jinxed's own calls
+
+The split, as chosen: the keyboard, the sender, power and settings stay
+on the host, with the settings page as one blocking host call, so the
+email account and Wi-Fi never enter the box. The editor, `files.c` (with
+feckless's chooser in the ELF) and NVS namespace `jinxed` go in the box.
+One change from that choice: **`display.c` stays on the host too.** The
+settings page sets the rotation through it (`display_set_rotation()`,
+settings.c), and the page is the host's. The editor's four calls into it
+(`display_text_scale`, `display_foot_scale`, `display_set_text_scale`,
+`display_markdown`) become own calls with the rest.
+
+What the box already answers: battery, the RTC, touch, the backlight,
+the I2C bus, `vTaskDelay`, ticks, `esp_timer_get_time`, NVS
+(u-feckless-0045 to 0053). `esp_app_get_description` is linked into the
+ELF (feckless_abi_elf()). What the editor calls into Jinxed's own host
+modules, by name from editor.c and files.c, is 22 calls.
+
+`m5tab5/components/jinxed_box`:
+- `jinxed_calls.txt`: `@symbol jinxed_calls_v1` and the 22 names, the
+  file for the ELF's `OWN_CALLS` (u-feckless-0054).
+- `src/jbox_calls.c`: the handlers. Most keep the writer's names and
+  signatures, so editor.c will call them unchanged:
+  - `kbd_get` (unlocked, it waits), `kbd_present`, `kbd_ascii`;
+  - the sender's `fetch_dict`, `fetched`, `sent`, `gen` and `status`;
+  - power's `idle_seconds`, `note_sent`, `off_idle` (unlocked, it may
+    not return) and `wake_line`;
+  - settings' `draw_gear`, `gear_w` and `gear_hit`;
+  - the four display calls.
+
+  Every pointer is checked for its length, every string the host reads
+  is copied into it first, and results go only into the room given. A
+  host string is truncated to fit and always terminated.
+- Three calls cannot cross as they are, and have names of their own. A
+  shim in the ELF (the next patch) turns them back into the editor's:
+  - `jinxed_settings_author(buf, size)`: `settings_author()` returns a
+    host pointer.
+  - `jinxed_send_doc(name, range, text, len, foot, log_path, log_len)`:
+    `sender_send_doc()` takes a function to copy the log, which would be
+    the box's to run. The host reads the log itself, the first
+    `log_len` bytes of the twin named, as `doclog_copy_log()` does,
+    with the path held to `/sd/jinxed` and a log past the sender's
+    buffer marked too big. The sender copies text and log before it
+    returns, so the host keeps nothing of the box's.
+  - `jinxed_settings_page()`: the page calls the editor's send from
+    inside its loop, and the editor is in the box. So the host registers
+    its own send callback, which records the request and calls
+    `settings_close()`. The page returns 1 for "send now" and 0 when
+    left, and the shim sends and opens the page again. The page then
+    reopens at its top after a send; that is the visible difference.
+- `settings.c` and `settings.h`: `settings_close()`, a flag checked after
+  each of the page's two `s_send()` calls, and reset when the page
+  opens. The writer's own page is unchanged, since nothing there sets
+  the flag.
+- The host's functions come in through `jinxed_box_host(&host)`, a
+  `jinxed_host_t` of pointers given by the writer's main. A component
+  cannot require main, and the test gives stand-ins. A call whose
+  function is NULL answers 0. The writer's `main/` is on the component's
+  include path for `kbd.h`'s `kbd_event_t`. No header there has a
+  feckless header's name.
+- `jinxed_box_calls()` returns feckless's table with the own calls after
+  it, built once. For each load it installs the write filter (0012) and
+  NVS namespace `jinxed` (`feckless_box_calls_nvs()`): files.c's and
+  display.c's, not the mail account's.
+
+*Checked:* `make -C m5tab5/components/jinxed_box/test FECKLESS=<feckless-libs
+at 4832315>`, all passing. A new `test_own_calls` runs every own call
+against stand-ins:
+- an event copied out, and refused outside the box or at its end, with
+  nothing written when no key comes;
+- status lines fitted and terminated;
+- `jinxed_send_doc`'s strings handed over as host copies and the text as
+  the box's, with the log read from the card. Too long is too big, a
+  path outside the root attaches none, and bad strings, text past the
+  box or a 99-byte name refuse the send;
+- the author truncated, and absent;
+- the page left (0) and "send now" (1, closed), not remembered after;
+- the display calls passed through;
+- NVS: `jinxed` written, `mail` refused;
+- with no host functions, every own call answers 0.
+
+The table is feckless's entries unchanged and then the own calls, no
+own name is a feckless name, `jinxed_calls_v1` is data and version 1,
+and `jinxed_calls.txt` lists exactly the own calls.
+
+Eight changes are each caught: `kbd_get` unchecked (ASan), the send's
+strings handed over from the box, the log path anywhere, a host string
+unterminated, no NVS namespace, a log past the host's buffer, and
+`jinxed_calls.txt` naming a call that is not one. Three of them failed
+to compile under `-Werror` the first time and were redone. One survives
+because it changes nothing (the request flag is cleared at the page's
+start too). The test's stand-in for the sender kept the handler's stack
+copies and read them after the call, and ASan caught it. It now copies
+during the call, as the sender does. Both files compile at `-O2 -Wall
+-Werror=all -Wextra -Werror=extra`.
+
+*Not checked:* settings.c compiled (its headers are the writer's whole
+board); an ESP-IDF build; a board. The ELF's side, the shim and the
+editor built boxed, is next.

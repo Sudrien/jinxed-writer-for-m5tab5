@@ -168,6 +168,12 @@ static bool back_hit(int x, int y)
 static bool (*s_send)(void);
 void settings_on_send(bool (*send)(void)) { s_send = send; }
 
+/* u-jinxed-0013: the page leaves once the send callback returns, when that
+ * callback asked: a boxed editor's send runs in the box, outside this
+ * loop, so the host's callback only records the request and closes. */
+static bool s_close;
+void settings_close(void) { s_close = true; }
+
 static char s_author[DOCLOG_AUTHOR_MAX + 1];
 static bool s_author_loaded;
 
@@ -658,6 +664,7 @@ void settings_page(void)
     page_t p = layout(false, 0);
     bool redraw = true;
     uint32_t seen_gen = sender_gen();
+    s_close = false;                    /* u-jinxed-0013 */
 
     for (;;) {
         if (redraw) {
@@ -689,6 +696,7 @@ void settings_page(void)
             case KBD_KP_ENTER:
                 if (gui) {              /* 0038: Cmd+Enter, as in the editor */
                     if (s_send) s_send();
+                    if (s_close) goto out;  /* u-jinxed-0013 */
                     break;
                 }
                 if (email_form()) ESP_LOGI(TAG, "email account saved");
@@ -723,6 +731,7 @@ void settings_page(void)
                     sender_test();      /* refused while one runs; the label says so */
                 } else if (s_send && p.test_y >= 0 && in_rect(in.x, cy, PAD + bw + PAD / 2, p.test_y, bw, BTN_H)) {
                     s_send();
+                    if (s_close) goto out;  /* u-jinxed-0013 */
                 } else if (in_rect(in.x, cy, PAD, p.edit_y, bw, BTN_H)) {
                     if (email_form()) ESP_LOGI(TAG, "email account saved");
                     load_mail();

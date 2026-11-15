@@ -6,7 +6,9 @@
 # SPDX-License-Identifier: MIT
 
 idf_component_register(
-    SRCS "src/jbox_storage.c"
+    SRCS "src/jbox_storage.c" "src/jbox_calls.c"
     INCLUDE_DIRS "include"
+                 "../../main"      # u-jinxed-0013: the writer's headers (kbd.h), for types
     REQUIRES feckless_umode feckless_box_calls
+    PRIV_REQUIRES heap
 )

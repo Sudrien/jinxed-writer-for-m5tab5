@@ -59,17 +59,224 @@ static uint32_t call(const char *name, uint32_t a0, uint32_t a1, uint32_t a2, ui
     return ret;
 }
 static uint32_t P(const void *p) { return (uint32_t)(uintptr_t)p; }
+/* Seven arguments: a0..a6. */
+static uint32_t call7(const char *name, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
+                       uint32_t a4, uint32_t a5, uint32_t a6)
+{
+    w.ctx.x[14] = a4; w.ctx.x[15] = a5; w.ctx.x[16] = a6;
+    return call(name, a0, a1, a2, a3);
+}
 static void *box_alloc(uint32_t n) { void *p = (void *)(uintptr_t)feckless_box_alloc(&box, n); memset(p, 0, n); return p; }
 static char *put_str(const char *s) { char *p = box_alloc((uint32_t)strlen(s) + 1); strcpy(p, s); return p; }
 static bool exists(const char *p) { return access(p, F_OK) == 0; }
 
 /* u-jinxed-0012: feckless's own table, the filter installed with it. */
+static const char *s_answers;                  /* jinxed_calls.txt */
+
 static void test_table(void)
 {
-    uint32_t fn = 0, n2 = 0;
+    uint32_t fn = 0, on = 0, n2 = 0;
     const feckless_umode_call_t *f = feckless_box_calls_v1(&fn);
-    CHECK(calls_tab == f && ncalls == fn);                         /* feckless's, as it is */
-    CHECK(jinxed_box_calls(&n2) == f && n2 == fn);
+    const feckless_umode_call_t *o = jinxed_box_own_calls(&on);
+    CHECK(jinxed_box_calls(&n2) == calls_tab && n2 == ncalls);     /* built once */
+    CHECK(ncalls == fn + on);
+    for (uint32_t i = 0; i < fn; i++) {                           /* feckless's, as it is */
+        CHECK(!strcmp(calls_tab[i].name, f[i].name) && calls_tab[i].fn == f[i].fn &&
+              calls_tab[i].data == f[i].data && calls_tab[i].flags == f[i].flags);
+    }
+    for (uint32_t i = 0; i < on; i++) {                           /* then Jinxed's */
+        CHECK(!strcmp(calls_tab[fn + i].name, o[i].name) && calls_tab[fn + i].fn == o[i].fn);
+        for (uint32_t j = 0; j < fn; j++) {
+            if (!strcmp(o[i].name, f[j].name)) { printf("FAIL own call %s is feckless's\n", o[i].name); failed++; }
+        }
+    }
+    /* jinxed_calls_v1: data, version 1, first */
+    CHECK(!strcmp(o[0].name, "jinxed_calls_v1") && o[0].fn == NULL && o[0].data_len == 4 &&
+          *(const uint32_t *)o[0].data == 1);
+    /* jinxed_calls.txt: the symbol, and exactly the other own names */
+    FILE *a = fopen(s_answers, "r");
+    CHECK(a != NULL);
+    char line[128];
+    int names = 0, sym = 0;
+    while (a && fgets(line, sizeof line, a)) {
+        line[strcspn(line, "\r\n")] = '\0';
+        if (!strncmp(line, "@symbol ", 8)) { sym += !strcmp(line + 8, o[0].name); continue; }
+        if (!line[0] || line[0] == '#') continue;
+        names++;
+        bool found = false;
+        for (uint32_t i = 1; i < on; i++) found |= !strcmp(line, o[i].name) && o[i].fn != NULL;
+        if (!found) { printf("FAIL jinxed_calls.txt names %s, not an own call\n", line); failed++; }
+    }
+    if (a) fclose(a);
+    CHECK(sym == 1 && names == (int)on - 1);
+}
+
+/* ---- u-jinxed-0013: the own calls, against stand-ins ------------------ */
+static kbd_event_t h_ev = { .usage = 0x04, .mods = 0x02, .down = true, .apple = false, .cmd = true };
+static bool h_kbd_has = true;
+static uint32_t h_ticks;
+static bool h_kbd_get(kbd_event_t *ev, uint32_t ticks) { h_ticks = ticks; if (h_kbd_has) *ev = h_ev; return h_kbd_has; }
+static bool h_kbd_present(void) { return true; }
+static uint8_t h_asc_u, h_asc_m; static bool h_asc_c;
+static char h_kbd_ascii(uint8_t u, uint8_t m, bool c) { h_asc_u = u; h_asc_m = m; h_asc_c = c; return 'A'; }
+static bool h_true(void) { return true; }
+static uint32_t h_gen(void) { return 77; }
+static bool h_status(char *line, size_t size) { snprintf(line, size, "sending: 3 of 5 parts done"); return true; }
+/* As the sender does: copied during the call. Whether each pointer was the
+ * box's is kept, since the copies are the handler's and gone after. */
+static bool h_sent;
+static char h_send_name[64], h_send_range[40], h_send_foot[160];
+static bool h_name_boxed, h_range_boxed, h_foot_boxed, h_foot_null;
+static const char *h_send_text;
+static uint32_t h_send_len;
+static bool in_box(const void *p);
+static size_t h_log_got; static bool h_log_big;
+static char h_logbuf[64];
+static bool h_send_doc(const char *name, const char *range, const char *text, uint32_t len,
+                       const char *foot, size_t (*log)(void *buf, size_t cap, bool *too_big))
+{
+    h_sent = true;
+    snprintf(h_send_name, sizeof h_send_name, "%s", name);
+    snprintf(h_send_range, sizeof h_send_range, "%s", range);
+    snprintf(h_send_foot, sizeof h_send_foot, "%s", foot ? foot : "");
+    h_name_boxed = in_box(name); h_range_boxed = in_box(range); h_foot_boxed = foot && in_box(foot);
+    h_foot_null = foot == NULL;
+    h_send_text = text; h_send_len = len;
+    h_log_got = log ? log(h_logbuf, sizeof h_logbuf, &h_log_big) : 0;
+    return true;
+}
+static int h_idle(int kind) { return 100 + kind; }
+static char h_noted[64]; static uint32_t h_noted_seq;
+static void h_note_sent(const char *name, uint32_t seq) { snprintf(h_noted, sizeof h_noted, "%s", name); h_noted_seq = seq; }
+static bool h_wake(char *line, size_t size) { snprintf(line, size, "woke at 07:00"); return true; }
+static int h_gear_drawn;
+static void h_draw_gear(void) { h_gear_drawn++; }
+static int h_gear_w(void) { return 48; }
+static int h_hit_x, h_hit_y;
+static bool h_gear_hit(int x, int y) { h_hit_x = x; h_hit_y = y; return x > 600; }
+static const char *h_author_name = "Ada Lovelace, Countess of Lovelace";
+static const char *h_author(void) { return h_author_name; }
+static bool (*h_send_cb)(void);
+static void h_on_send(bool (*send)(void)) { h_send_cb = send; }
+static bool h_page_presses;                 /* the page presses "send now" */
+static int h_closed;
+static void h_close(void) { h_closed++; }
+static void h_page(void) { if (h_page_presses && h_send_cb) h_send_cb(); }
+static int h_scale = 2;
+static int h_text_scale(void) { return h_scale; }
+static int h_foot_scale(void) { return 1; }
+static void h_set_text_scale(int s) { h_scale = s; }
+static bool h_md(void) { return true; }
+
+static const jinxed_host_t s_fake_host = {
+    .kbd_get = h_kbd_get, .kbd_present = h_kbd_present, .kbd_ascii = h_kbd_ascii,
+    .sender_fetch_dict = h_true, .sender_fetched = h_true, .sender_sent = h_true,
+    .sender_gen = h_gen, .sender_status = h_status, .sender_send_doc = h_send_doc,
+    .power_idle_seconds = h_idle, .power_note_sent = h_note_sent, .power_off_idle = h_note_sent,
+    .power_wake_line = h_wake,
+    .settings_draw_gear = h_draw_gear, .settings_gear_w = h_gear_w, .settings_gear_hit = h_gear_hit,
+    .settings_author = h_author, .settings_on_send = h_on_send, .settings_page = h_page,
+    .settings_close = h_close,
+    .display_text_scale = h_text_scale, .display_foot_scale = h_foot_scale,
+    .display_set_text_scale = h_set_text_scale, .display_markdown = h_md,
+};
+
+static bool in_box(const void *p) { return (uintptr_t)p >= w.lo && (uintptr_t)p < w.hi; }
+
+static void test_own_calls(void)
+{
+    jinxed_box_host(&s_fake_host);
+
+    /* the keyboard */
+    kbd_event_t *ev = box_alloc(sizeof *ev);
+    CHECK(call("kbd_get", P(ev), 50, 0, 0) == 1 && h_ticks == 50);
+    CHECK(ev->usage == 0x04 && ev->mods == 0x02 && ev->down && ev->cmd && !ev->apple);
+    CHECK(call("kbd_get", P(&h_ev), 50, 0, 0) == 0);             /* not the box's */
+    CHECK(call("kbd_get", P((char *)mem + MEM - 2), 50, 0, 0) == 0);
+    h_kbd_has = false;
+    memset(ev, 0xEE, sizeof *ev);
+    CHECK(call("kbd_get", P(ev), 0, 0, 0) == 0 && ev->usage == 0xEE);   /* nothing written */
+    h_kbd_has = true;
+    CHECK(call("kbd_present", 0, 0, 0, 0) == 1);
+    CHECK(call("kbd_ascii", 0x104, 0x12, 1, 0) == 'A' && h_asc_u == 0x04 && h_asc_m == 0x12 && h_asc_c);
+
+    /* the sender */
+    CHECK(call("sender_fetch_dict", 0, 0, 0, 0) == 1 && call("sender_fetched", 0, 0, 0, 0) == 1);
+    CHECK(call("sender_sent", 0, 0, 0, 0) == 1 && call("sender_gen", 0, 0, 0, 0) == 77);
+    char *st = box_alloc(64);
+    CHECK(call("sender_status", P(st), 64, 0, 0) == 1 && !strcmp(st, "sending: 3 of 5 parts done"));
+    CHECK(call("sender_status", P(st), 8, 0, 0) == 1 && !strcmp(st, "sending"));   /* fits, terminated */
+    CHECK(call("sender_status", P(st), 0, 0, 0) == 0);
+    CHECK(call("sender_status", P((char *)mem + MEM - 4), 64, 0, 0) == 0);
+
+    /* jinxed_send_doc: the strings copied, the text the box's, the log read from the card */
+    FILE *lf = fopen("jbox_root/.note.md.h0", "wb");
+    fputs("JINXLOG-RECORDS-AND-MORE", lf);
+    fclose(lf);
+    char *name = put_str("note.md"), *range = put_str("seq 1-9"), *foot = put_str("-- Ada");
+    char *text = put_str("# some words\n");
+    char *lp = put_str("jbox_root/.note.md.h0");
+    CHECK(call7("jinxed_send_doc", P(name), P(range), P(text), 13, P(foot), P(lp), 7) == 1);
+    CHECK(!h_name_boxed && !strcmp(h_send_name, "note.md"));       /* the host's copies */
+    CHECK(!h_range_boxed && !strcmp(h_send_range, "seq 1-9"));
+    CHECK(!h_foot_boxed && !h_foot_null && !strcmp(h_send_foot, "-- Ada"));
+    CHECK(h_send_text == text && h_send_len == 13);
+    CHECK(h_log_got == 7 && !h_log_big && !memcmp(h_logbuf, "JINXLOG", 7));
+    CHECK(call7("jinxed_send_doc", P(name), P(range), P(text), 13, 0, P(lp), 100) == 1);
+    CHECK(h_foot_null && h_log_got == 0 && h_log_big);   /* past the host's buffer: too big */
+    char *outside = put_str("elsewhere/kept.txt");
+    CHECK(call7("jinxed_send_doc", P(name), P(range), P(text), 13, P(foot), P(outside), 5) == 1);
+    CHECK(h_log_got == 0 && !h_log_big);                          /* outside the root: no log */
+    CHECK(call7("jinxed_send_doc", P(name), P(range), P(text), 13, P(foot), 0, 5) == 1 && h_log_got == 0);
+    h_sent = false;
+    CHECK(call7("jinxed_send_doc", P("host"), P(range), P(text), 13, P(foot), P(lp), 7) == 0 && !h_sent);
+    CHECK(call7("jinxed_send_doc", P(name), P(range), P(text), MEM, P(foot), P(lp), 7) == 0 && !h_sent);
+    char *long_name = box_alloc(100);
+    memset(long_name, 'n', 99);
+    CHECK(call7("jinxed_send_doc", P(long_name), P(range), P(text), 13, P(foot), P(lp), 7) == 0 && !h_sent);
+
+    /* power */
+    CHECK(call("power_idle_seconds", 2, 0, 0, 0) == 102);
+    CHECK(call("power_note_sent", P(name), 9, 0, 0) == 0 && !strcmp(h_noted, "note.md") && h_noted_seq == 9);
+    h_noted[0] = '\0';
+    CHECK(call("power_note_sent", P("host"), 9, 0, 0) == 0 && h_noted[0] == '\0');
+    CHECK(call("power_off_idle", P(name), 11, 0, 0) == 0 && h_noted_seq == 11);
+    CHECK(call("power_wake_line", P(st), 64, 0, 0) == 1 && !strcmp(st, "woke at 07:00"));
+
+    /* settings */
+    CHECK(call("settings_draw_gear", 0, 0, 0, 0) == 0 && h_gear_drawn == 1);
+    CHECK(call("settings_gear_w", 0, 0, 0, 0) == 48);
+    CHECK(call("settings_gear_hit", 700, 20, 0, 0) == 1 && h_hit_x == 700 && h_hit_y == 20);
+    CHECK(call("settings_gear_hit", (uint32_t)-5, 20, 0, 0) == 0 && h_hit_x == -5);
+    char *au = box_alloc(48);
+    CHECK(call("jinxed_settings_author", P(au), 48, 0, 0) == strlen(h_author_name) && !strcmp(au, h_author_name));
+    CHECK(call("jinxed_settings_author", P(au), 4, 0, 0) == 3 && !strcmp(au, "Ada"));
+    CHECK(call("jinxed_settings_author", P((char *)mem + MEM - 2), 48, 0, 0) == 0);
+    h_author_name = NULL;
+    CHECK(call("jinxed_settings_author", P(au), 48, 0, 0) == 0);
+    h_page_presses = false;
+    h_closed = 0;
+    CHECK(call("jinxed_settings_page", 0, 0, 0, 0) == 0 && h_closed == 0);   /* left */
+    h_page_presses = true;
+    CHECK(call("jinxed_settings_page", 0, 0, 0, 0) == 1 && h_closed == 1);   /* send now: closed */
+    h_page_presses = false;
+    CHECK(call("jinxed_settings_page", 0, 0, 0, 0) == 0);                    /* not remembered */
+
+    /* the display's settings */
+    CHECK(call("display_text_scale", 0, 0, 0, 0) == 2 && call("display_foot_scale", 0, 0, 0, 0) == 1);
+    CHECK(call("display_set_text_scale", 3, 0, 0, 0) == 0 && h_scale == 3);
+    CHECK(call("display_markdown", 0, 0, 0, 0) == 1);
+
+    /* NVS: "jinxed" only */
+    char *ns_j = put_str("jinxed"), *ns_m = put_str("mail"), *key = put_str("last");
+    CHECK(call("nvsh_set_u8", P(ns_j), P(key), 5, 0) == 0);
+    CHECK(call("nvsh_set_u8", P(ns_m), P(key), 5, 0) != 0);
+
+    /* no host functions: every own call answers 0 */
+    jinxed_box_host(NULL);
+    CHECK(call("kbd_get", P(ev), 0, 0, 0) == 0 && call("sender_gen", 0, 0, 0, 0) == 0);
+    CHECK(call("jinxed_settings_page", 0, 0, 0, 0) == 0 && call("display_markdown", 0, 0, 0, 0) == 0);
+    CHECK(call7("jinxed_send_doc", P(name), P(range), P(text), 13, P(foot), P(lp), 7) == 0);
 }
 
 /* The filter alone. */
@@ -264,8 +471,9 @@ static void test_outside(void)
     }
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+    s_answers = argc > 1 ? argv[1] : "../../jinxed_calls.txt";
     mem = mmap(NULL, MEM, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
     if (mem == MAP_FAILED) { printf("no memory below 4 GB\n"); return 1; }
     feckless_box_init(&box, (uintptr_t)mem, MEM, 4096);
@@ -284,6 +492,7 @@ int main(void)
     test_filter_rule();
     test_inside();
     test_outside();
+    test_own_calls();
 
     /* The app's end forgets the filter: a write outside goes through, and
      * jinxed_box_calls() puts it back for the next load. */

@@ -1,0 +1,28 @@
+# u-jinxed-0013: Jinxed's own calls for its boxed editor, answered by its
+# .bin beside feckless_box_calls' (src/jbox_calls.c), and named for the
+# ELF's build: feckless_abi_box_elf(<name> OWN_CALLS .../jinxed_calls.txt)
+# (u-feckless-0054). A section's format: the version symbol the ELF must
+# refer to, then the names. test/ checks this list against the table.
+@symbol jinxed_calls_v1
+kbd_get
+kbd_present
+kbd_ascii
+sender_fetch_dict
+sender_fetched
+sender_sent
+sender_gen
+sender_status
+jinxed_send_doc
+power_idle_seconds
+power_note_sent
+power_off_idle
+power_wake_line
+settings_draw_gear
+settings_gear_w
+settings_gear_hit
+jinxed_settings_author
+jinxed_settings_page
+display_text_scale
+display_foot_scale
+display_set_text_scale
+display_markdown

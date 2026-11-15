@@ -29,6 +29,7 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include "esp_heap_caps.h"
 #include "feckless_box_calls.h"
 
 bool jinxed_box_may_write(const char *p)
@@ -49,9 +50,29 @@ bool jinxed_box_may_write(const char *p)
     return true;
 }
 
+static feckless_umode_call_t *s_table;
+static uint32_t s_n;
+
 const feckless_umode_call_t *jinxed_box_calls(uint32_t *n)
 {
-    /* Each app's: feckless_box_calls_end() forgets it. */
+    /* Each app's: feckless_box_calls_end() forgets both. */
     feckless_box_calls_write_filter(jinxed_box_may_write);
-    return feckless_box_calls_v1(n);
+    static const char *const ns[] = { "jinxed" };   /* files.c's, display.c's: not the mail account's */
+    feckless_box_calls_nvs(ns, 1);
+    if (!s_table) {
+        uint32_t fn = 0, on = 0;
+        const feckless_umode_call_t *f = feckless_box_calls_v1(&fn);
+        const feckless_umode_call_t *o = jinxed_box_own_calls(&on);
+        feckless_umode_call_t *t = heap_caps_malloc((fn + on) * sizeof *t, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (!t) {
+            *n = 0;
+            return NULL;
+        }
+        memcpy(t, f, fn * sizeof *t);
+        memcpy(t + fn, o, on * sizeof *t);
+        s_table = t;
+        s_n = fn + on;
+    }
+    *n = s_n;
+    return s_table;
 }
