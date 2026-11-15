@@ -821,3 +821,56 @@ manifest already names the handler.
 *Checked:* the configure log, as reported; feckless_box_calls' and
 feckless_nvs_handler's requirements at 4832315. *Not checked:* a build
 after the change.
+
+## u-jinxed-0015 -- a power-off that does not happen is said, not silent
+
+This is main's code, unchanged on this branch, and the fix applies to
+main as it is. It is here because a board running the branch showed it.
+
+**What a board did.** It woke for the RTC alarm, a dark wake, with no
+note to send, with USB attached for the monitor. It logged
+`power: dark wake: woke with no note to send`, then
+`E ledc: ... LEDC is not initialized` and `E tab5_lcd: lcd_backlight_set(175): duty`,
+then `W power: power off (try 1)`, and then nothing until its power
+button was pressed by hand. The serial line dropped during the pulse.
+
+**Why.** `pulse_off()` toggles the PMS150's line. On battery that cuts
+the rail and never returns. On external power the rail stays up, and
+after three tries `pulse_off()` returns with an error on the serial
+line, the only report. The dark-wake paths `off_quiet()` and
+`off_backoff()` then ended in `for (;;) vTaskDelay(portMAX_DELAY)`: no
+panel (a dark wake never lights it), no editor, no keyboard. That is a
+board that looks off and is not, and stays that way until its button.
+The editor's idle power-off (`power_down()`) had the same gap in a
+milder form: still here, it stayed dark and said nothing. The LEDC error
+is `pulse_off()`'s `lcd_backlight_set(0)` on a dark wake, where the
+panel and its LEDC were never set up.
+
+**Now:**
+- `power.c`, the dark wake: `not_off()` takes the place of the endless
+  wait. It adds `did not power off (external power?)` to the wake line,
+  after the line already set (`woke with no note to send; did not power
+  off ...`), kept within the editor's 160-byte status line. It logs the
+  restart and restarts. The alarm is already what it should be, either
+  off or the backoff's, so the board boots normally, and the editor
+  shows the wake line on its status line for 10 s, as it shows a
+  scheduled send's result (0051).
+- `power.c`: `pulse_off()` leaves the backlight alone on a dark wake
+  (`s_dark`, set by `power_dark_wake()`), so there is no LEDC error.
+- `editor.c`, the idle power-off: when `power_off_idle()` comes back, the
+  screen is lit again and the status line says `did not power off
+  (external power?)` for 10 s. The idle count starts over as before, so
+  on USB the editor tries again after the power-off time and says so
+  again.
+
+Not changed: three tries, a second apart, before giving up. Whether a
+board on external power should not try at all (`battery_external()`)
+is a question for main.
+
+*Checked:* `power.c`, `editor.c` and `settings.c` compiled at `-O2 -Wall
+-Werror=all -Wextra -Werror=extra` against feckless-libs' own headers at
+4832315 and stand-ins for ESP-IDF's, the first time any of them was
+compiled in this work. editor.c was clean before the change too.
+*Not checked:* a board. To see it: with USB attached, let the alarm wake
+it with nothing to send, or set the power-off time to its shortest.
+Either should come back lit with the line, not stay dark.

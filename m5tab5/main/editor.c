@@ -2060,7 +2060,15 @@ static bool power_down(void)
     if (s_idle != 2) fade_out();
     s_idle = 2;
     power_off_idle(s_name, doclog_is_open() ? doclog_seq() : 0);
-    return true;                        /* still here: the pulse failed */
+    /* u-jinxed-0015: still here: the pulse did not cut the rail, as on
+     * external power it does not. Lit again with the reason on the status
+     * line, not left dark and silent; the idle count starts over. */
+    s_idle = 0;
+    lcd_backlight_set(DISPLAY_BACKLIGHT);
+    snprintf(s_send_line, sizeof s_send_line, "did not power off (external power?)");
+    s_send_until = xTaskGetTickCount() + pdMS_TO_TICKS(SEND_SHOW_MS);
+    redraw();
+    return true;
 }
 
 /* 0051, 0054: the idle steps, and the power-off at the end of them;

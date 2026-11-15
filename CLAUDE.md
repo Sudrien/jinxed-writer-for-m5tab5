@@ -292,3 +292,4 @@ worked. A tag move keeps that line.
 - u-jinxed-0012 jinxed_box: feckless's write filter in place of the wrappers
 - u-jinxed-0013 jinxed_box: the boundary's host side, Jinxed's own calls
 - u-jinxed-0014 boxlog: the manifest names feckless_nvs_handler
+- u-jinxed-0015 Power: a power-off that does not happen is said, not silent (main's code)

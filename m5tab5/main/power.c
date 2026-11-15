@@ -11,6 +11,7 @@
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -62,9 +63,11 @@ static esp_err_t exp2_bit(uint8_t reg, bool set)
 /* Spec 2, rule 6: output and out of high-Z, then the pulse; again if the
  * board is still running a second later. The alarm is already set as it
  * should be. */
+static bool s_dark;     /* u-jinxed-0015: this boot is a dark wake: the panel was never lit */
+
 static void pulse_off(void)
 {
-    lcd_backlight_set(0);
+    if (!s_dark) lcd_backlight_set(0);  /* u-jinxed-0015: a dark wake has no LEDC to set */
     for (int i = 0; i < PULSE_TRIES; i++) {
         ESP_LOGW(TAG, "power off (try %d)", i + 1);
         exp2_bit(PI4IOE_REG_IO_DIR, true);
@@ -204,11 +207,32 @@ static void dark_line(const char *s)
     nvsh_set_str(NVS_NS, NVS_WAKE_LINE, s);
 }
 
+/* u-jinxed-0015: pulse_off() came back, so the board is still running:
+ * on external power the PMS150 does not cut the rail. The dark wake used
+ * to stop here for good -- no panel, no editor, its one error on the
+ * serial line -- a board that looked off and was not, until its button.
+ * Now the reason joins the wake line and the board restarts; the alarm is
+ * already what it should be, so it boots normally, and the editor shows
+ * the line on the status line as it shows a scheduled send's. */
+#define WAKE_LINE_MAX   160             /* the editor's s_send_line */
+static void not_off(void)
+{
+    char prev[WAKE_LINE_MAX];
+    size_t n = sizeof prev;
+    if (nvsh_get_str(NVS_NS, NVS_WAKE_LINE, prev, &n) != ESP_OK) prev[0] = '\0';
+    char line[WAKE_LINE_MAX];
+    snprintf(line, sizeof line, "%.100s%sdid not power off (external power?)", prev, prev[0] ? "; " : "");
+    nvsh_set_str(NVS_NS, NVS_WAKE_LINE, line);
+    ESP_LOGE(TAG, "dark wake: still running after the power-off pulse; restarting to say so");
+    vTaskDelay(pdMS_TO_TICKS(100));     /* the line out of the UART first */
+    esp_restart();
+}
+
 static void off_quiet(void)
 {
     rtc8130_alarm_off();
     pulse_off();
-    for (;;) vTaskDelay(portMAX_DELAY);
+    not_off();
 }
 
 static void off_backoff(void)
@@ -218,7 +242,7 @@ static void off_backoff(void)
     set_interval(next);
     if (!rtc8130_alarm_arm(next)) rtc8130_alarm_off();
     pulse_off();
-    for (;;) vTaskDelay(portMAX_DELAY);
+    not_off();
 }
 
 static bool past(int64_t t0)
@@ -228,6 +252,7 @@ static bool past(int64_t t0)
 
 void power_dark_wake(void)
 {
+    s_dark = true;                      /* u-jinxed-0015 */
     const int64_t t0 = esp_timer_get_time();
     char name[POWER_NAME_MAX];
     size_t n = sizeof name;
