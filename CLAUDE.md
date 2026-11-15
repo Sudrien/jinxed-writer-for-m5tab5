@@ -71,6 +71,18 @@ Before choosing a number, look at the last one used -- the list at the
 end of this file -- and take the next. Every patch adds its own line to
 that list, in the same patch.
 
+**The `umode` branch has a numbering of its own: `u-jinxed-NNNN`.**
+Its patches are named `u-jinxed-0001-<subject>.patch`, `u-jinxed-0002-...`,
+and apply to the `umode` branch, not to main. They are numbered from
+`--start-number 1` and renamed with the prefix; the subject has neither.
+Each adds its line to "u-jinxed numbers used" at the end of this file,
+not to the main list, and its section to `UMODE.md`, so they cannot
+clash with a patch that lands on main meanwhile. Look at the last
+`u-jinxed` line for the next number. feckless-libs, Avoidant, Defeatist
+and Lothesome have the same arrangement (`u-feckless-NNNN` and so on).
+When the branch merges, its entries move into the series of the release
+it goes into.
+
 Within a patch, change the lines that must change and no others. No
 reflowing, no drive-by renames, no reorganising code being passed
 through. Restructuring an existing function is sometimes the smallest
@@ -260,3 +272,7 @@ worked. A tag move keeps that line.
 - 0054 Sleep: Defeatist's dim, fade, power-off steps and low-battery off, set on the settings page
 - 0055 Sleep: the key that wakes a dark screen is typed, not swallowed
 - 0056 Docs: the README and spec checked against the code after 0049-0055
+
+## u-jinxed numbers used
+
+- u-jinxed-0001 Open the umode branch: u-jinxed numbering and what is known
