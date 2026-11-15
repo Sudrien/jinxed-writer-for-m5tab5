@@ -944,3 +944,110 @@ are each caught: the end left as it was after a close, and the path
 returned with no log open. doclog.c compiles at `-O2 -Wall -Werror=all
 -Wextra -Werror=extra` against feckless-libs' headers at bf2e864 and
 stand-ins for ESP-IDF's. *Not checked:* an ESP-IDF build; a board.
+
+## u-jinxed-0018 -- the editor in a box: m5tab5/boxed, Jinxed's own .bin
+
+This is step 4 of 0001's order: the whole editor in the box, with the
+host's calls behind one table (0013, 0016). It is a project of its own,
+`m5tab5/boxed`, laid out as boxlog is. The writer's firmware does not
+build it and is unchanged by it, apart from one function in files.c.
+
+**The ELF** (`boxed/elf`, `boxed/main` built with `JINXED_BOXED_ELF`):
+the writer's `editor.c`, `files.c`, `doclog.c`, `md.c`, `spell.c` and
+`fname.c` unchanged, feckless_storage_handler's `storage_list.c`, which a
+boxed app links into itself since it calls the app's filter
+(u-feckless-0047), feckless_chooser as an `ELF_COMPONENTS` entry, and
+`boxed/main/shim.c`. `feckless_abi_box_elf(jinxed_editor OWN_CALLS
+.../jinxed_calls.txt)` builds it, so both checks take the 23 own calls
+as answered.
+
+`shim.c` is the boundary's ELF side: the four things 0013 and 0016 left
+for it.
+- `settings_author()` copies the name out through
+  `jinxed_settings_author`, into a buffer of `DOCLOG_AUTHOR_MAX + 1`,
+  which is also the size of the host's.
+- `settings_on_send()` and `settings_page()`: the page loops on
+  `jinxed_settings_page`, and each 1 is a "send now", which the shim
+  sends and then reopens the page. When the page is left, the shim
+  fetches the theme again and forgets the mode (below).
+- `sender_send_doc()` passes `doclog_log_path()` (0017) to
+  `jinxed_send_doc` when it is given a log function, and nothing when it
+  is given none.
+- `display_col` points at the shim's own `display_theme_t`, filled by
+  `jinxed_display_col` (0016) before `editor_init()`. If the host
+  refuses (a layout mismatch), the shim logs it.
+- `app_main()` requires the core ABI, storage, NVS and the box, refers to
+  `jinxed_calls_v1`, and runs `editor_init()` and `editor_run()`.
+
+**The .bin** (`boxed/main/host.c`): main.c's bring-up line for line, the
+dark wake included, then `jinxed_box_host()` with the writer's functions
+by name and `display_col`'s address, the load, and
+`feckless_umode_app_run_on(app, 1)`. The rest of the writer's `main/`
+except `editor.c` is linked: `doclog.c` for the dark wake's send,
+`spell.c` for the sender's check of a download, `files.c` for the
+settings page's mode, and `fname.c` and `md.c` with them. The box is at
+most 16 MB, and the host keeps 8 MB of PSRAM's largest block. That is
+room for the gfx shadow buffer and for a send's copy of the text and
+its 4 MB log, which the sender allocates the first time it sends. The
+editor's own buffers are about 4.5 MB. Host calls run on
+`box_main`'s 16 KB internal stack (u-feckless-0031). Internal is what
+the settings page needs, since it writes NVS (CLAUDE.md: a task that
+touches flash). If the editor ends, which the writer's never does, the
+host logs why, puts one line on the screen, and waits. It does not
+restart, because a fault at start would loop.
+
+**Two copies of state, and the one that went stale.** files.c runs on
+both sides: in the box for the notes page, and on the host for the
+settings page's Daily/File buttons. Both read and write NVS `jinxed`
+`mode`, but each caches it in `s_mode`. If the page changed the mode,
+the box's copy would keep the old one until a reboot.
+`files_forget_mode()` (files.c, files.h, the only change to the writer's
+code) clears the cache, and the shim calls it after the page. The theme
+is the other copy, refetched at the same point. The text size,
+markdown and the rotation are asked of the host at each use, and spell
+and doclog state are the box's alone.
+
+**Manifests**, after boxlog's 0007 lesson that a manifest dependency is a
+requirement of the component in both builds: `boxed/main/idf_component.yml`
+names what both builds need (the ELF's headers, feckless_abi, and the
+by-name requirements). `jinxed_boxed_bindeps`, which only the .bin's
+build has, names feckless_umode, feckless_box_calls, mail, the keyboard,
+the library table, the network and the esp_hosted cap.
+`elf/jinxed_boxed_elfdeps` names feckless_box_libc and the storage and
+NVS sections. All are on feckless-libs' `umode` branch. Neither build
+has been run, so the resolution is unchecked (CLAUDE.md: a manifest
+change).
+
+**stpcpy.** Compiled by the host's GCC at -O2, editor.c's two `strcat()`s
+for the F1 legend became `stpcpy()`. That name is neither in the app
+(`inapp.txt`) nor answered by the box, so boxcheck would refuse the ELF
+on it. Whether riscv32-esp-elf's GCC does the same is not known. The
+ELF's sources are compiled with `-fno-builtin-stpcpy`, which stopped it
+on the host. Adding stpcpy to feckless_box_libc's in-app list would be
+the general fix, and that would be feckless-libs' change.
+
+*Checked:* the ELF's sources (shim.c, the six from main/,
+`storage_list.c` and feckless_chooser's source) compiled at -O2 against
+feckless-libs' headers at bf2e864 and stand-ins for ESP-IDF's. shim.c and
+the six compile with `-Wall -Werror=all -Wextra -Werror=extra`. Their
+undefined symbols, less what they define, were compared with
+`boxcalls_names.txt`, `inapp.txt` and `jinxed_calls.txt`, as boxcheck
+compares them. What is left is `esp_app_get_description` (linked in by
+`feckless_abi_elf()`), `stpcpy` (above), and glibc's own
+`__errno_location`, `__ctype_tolower_loc` and GOT, which picolibc has
+inside the app. Every own call is imported, `jinxed_calls_v1` included.
+host.c compiles with the same flags. `./test/run.sh` and the jinxed_box
+test pass.
+*Not checked:* an ESP-IDF build of either side. That means the CMake,
+`ELF_COMPONENTS`, `COMPONENT_DIR` in the ELF's component, both checks
+for real, the link, and the manifests' resolution. Also not checked:
+the writer's kbd.c, settings.c, sender.c and power.c compiled here (they
+are unchanged; this patch's stand-ins lack their IDF headers), and
+anything on a board.
+
+**What a first board run should show:** `the editor, boxed, in N KB`;
+the editor drawing with the theme; typing that appends (`.h0`/`.h1`
+growing); the settings page opening, changing the theme, and coming back
+in it; Send notes now sending with the log attached; the notes page
+listing and opening; and no key lost while typing fast. The call
+statistics will say what a keystroke costs in host calls.

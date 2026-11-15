@@ -1,0 +1,37 @@
+dependencies:
+  idf:
+    version: ">=6.1"
+
+  # u-jinxed-0018: the .bin's alone. See CMakeLists.txt. Their own
+  # requirements by name (feckless_abi, the drivers, graphics, storage,
+  # NVS, fatfs, the USB class drivers) are in ../main/idf_component.yml,
+  # which both builds read.
+  feckless_umode:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_umode
+    version: "umode"
+  feckless_box_calls:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_box_calls
+    version: "umode"
+  # The settings page: the email account and its form, the keyboard the
+  # form links (unused here, osk off), and the library table.
+  feckless_mail:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_mail
+    version: "umode"
+  feckless_keyboard:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_keyboard
+    version: "umode"
+  feckless_libversions:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_libversions
+    version: "umode"
+  # Wi-Fi through the C6 for sends, as the writer's manifest has it.
+  feckless_network_handler:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_network_handler
+    version: "umode"
+  # Below 3.1.0, as the writer's manifest says why (0016).
+  espressif/esp_hosted: ">=3.0.7,<3.1.0"

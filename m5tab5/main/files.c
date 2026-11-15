@@ -57,6 +57,8 @@ void files_set_mode(int mode)
         ESP_LOGW(TAG, "mode not kept; it holds until power-off");
 }
 
+void files_forget_mode(void) { s_mode = -1; }
+
 bool files_last(char *name, size_t n)
 {
     size_t len = n;

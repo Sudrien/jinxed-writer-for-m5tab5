@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT
+# boxed (u-jinxed-0018): after ../sdkconfig.defaults, what a box needs, as
+# boxlog's.
+
+# feckless_umode stops the configure without it: the bootloader's PMP
+# region protection and the box's grants cannot both stand.
+CONFIG_BOOTLOADER_REGION_PROTECTION_ENABLE=n
+CONFIG_ESP_SYSTEM_MEMPROT_FEATURE=n
+# the ELF is loaded into PSRAM
+CONFIG_ELF_LOADER_LOAD_PSRAM=y
+
+# feckless_abi_storage holds both sides to one FatFs, so that FIL, FF_DIR
+# and FILINFO are laid out alike (its CMakeLists.txt).
+CONFIG_FATFS_USE_FASTSEEK=y
+CONFIG_FATFS_USE_DYN_BUFFERS=y
+CONFIG_FATFS_PER_FILE_CACHE=y
+CONFIG_FATFS_FS_LOCK=0
+CONFIG_WL_SECTOR_SIZE_4096=y
+
+# The busiest host calls and what each costs, every 5 s (u-feckless-0029).
+# On for the first board runs, which are measurements; off once typing in
+# the box is settled, since it is a line every 5 s on the monitor.
+CONFIG_FECKLESS_UMODE_CALL_STATS=y

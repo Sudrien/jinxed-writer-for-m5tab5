@@ -1,0 +1,55 @@
+dependencies:
+  idf:
+    version: ">=6.1"
+
+  # u-jinxed-0018: feckless-libs' umode branch, as the writer's manifest on
+  # this branch names it (u-jinxed-0002); this project's own
+  # dependencies.lock records the commit, and elf/dependencies.lock the
+  # ELF's.
+  #
+  # What both builds of main need: the drivers, graphics, storage, NVS
+  # and the chooser, which are the ELF's headers and the .bin's board;
+  # feckless_abi, which the ELF builds with and feckless_box_calls
+  # requires; fatfs and the two USB class drivers, because those
+  # components require them by name.
+  #
+  # Not here: what only one build links. The component manager makes every
+  # dependency here a requirement of main, in both builds (u-jinxed-0007).
+  # The ELF's are in elf/jinxed_boxed_elfdeps, the .bin's in
+  # jinxed_boxed_bindeps.
+  feckless_abi:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_abi
+    version: "umode"
+  feckless_drivers:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_drivers
+    version: "umode"
+  feckless_graphics_handler:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_graphics_handler
+    version: "umode"
+  usb_host_uac:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/usb_host_uac
+    version: "umode"
+  feckless_storage_handler:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_storage_handler
+    version: "umode"
+  usb_host_msc:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/usb_host_msc
+    version: "umode"
+  fatfs:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/fatfs
+    version: "umode"
+  feckless_nvs_handler:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_nvs_handler
+    version: "umode"
+  feckless_chooser:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_chooser
+    version: "umode"

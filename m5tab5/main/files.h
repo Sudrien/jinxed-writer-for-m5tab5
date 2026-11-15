@@ -35,6 +35,10 @@
 #define FILES_FILE      (1)
 int  files_mode(void);
 void files_set_mode(int mode);
+/* u-jinxed-0018: the next files_mode() reads NVS again. For a boxed
+ * editor, whose settings page is the host's and sets the mode in NVS
+ * behind this copy's back. */
+void files_forget_mode(void);
 
 /* The longest name the page will make, extension included. */
 #define FILES_NAME_MAX  (48)

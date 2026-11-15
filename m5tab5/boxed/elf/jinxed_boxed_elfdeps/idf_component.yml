@@ -1,0 +1,20 @@
+dependencies:
+  idf:
+    version: ">=6.1"
+
+  # u-jinxed-0018: the ELF's alone. See CMakeLists.txt. Their own
+  # requirements by name (feckless_abi, the storage and NVS handlers,
+  # fatfs) are in ../../main/idf_component.yml, which the ELF's build
+  # reads too.
+  feckless_box_libc:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_box_libc
+    version: "umode"
+  feckless_abi_storage:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_abi_storage
+    version: "umode"
+  feckless_abi_nvs:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_abi_nvs
+    version: "umode"
