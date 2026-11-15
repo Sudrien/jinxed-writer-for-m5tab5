@@ -385,3 +385,21 @@ more means the editor's storage is now fully answered. On a board,
 *Not checked:* an ESP-IDF build of either side, so neither the
 ExternalProject embedding nor boxcheck has run; a board. The README's
 log is a made-up example of the format.
+
+## u-jinxed-0006 -- boxlog's .bin requires lwip, for elf_loader
+
+The first build of boxlog stopped in elf_loader's `esp_elf_symbol.c`:
+`sys/socket.h` was missing. feckless_umode requires elf_loader, which
+includes `<sys/socket.h>` and `<arpa/inet.h>` without requiring lwip,
+where they live. boxlog is trimmed to `COMPONENTS main` and what main
+requires. 0005 put lwip in the ELF build's list, after Defeatist's boxwin
+(u-defeatist-0003), but not in the .bin's, which links elf_loader through
+feckless_umode. ninja, which builds the .bin, reported the failure. The
+ELF side builds with make inside it, and its list already had lwip.
+
+`m5tab5/boxlog/main/CMakeLists.txt`: lwip added to the .bin's
+`PRIV_REQUIRES`, with the reason. Nothing in boxlog opens a socket.
+
+*Checked:* the board's build log, as reported. *Not checked:* a build
+after the change. If the ELF's build stops next, its error will come
+from make, under `build/elf`.

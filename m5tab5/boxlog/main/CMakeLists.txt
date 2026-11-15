@@ -31,7 +31,17 @@ idf_component_register(
     PRIV_REQUIRES jinxed_box feckless_umode feckless_box_calls
                   feckless_drivers feckless_storage_handler
                   esp_timer esp_hw_support heap freertos
+                  lwip      # u-jinxed-0006: for elf_loader, as in the ELF's list above
 )
+
+# u-jinxed-0006: lwip is here for a file that is not this project's.
+# feckless_umode requires elf_loader, whose esp_elf_symbol.c includes
+# <sys/socket.h> and <arpa/inet.h> without requiring lwip, where they live.
+# The writer's build has lwip anyway (its main names it for Wi-Fi); this
+# project is trimmed to main and what it requires, so the .bin's first
+# build stopped at that file. 0005 gave the ELF's build lwip (after
+# Defeatist's boxwin, u-defeatist-0003) and missed that the .bin links
+# elf_loader too. Nothing here opens a socket.
 target_compile_definitions(${COMPONENT_LIB} PRIVATE "DOCLOG_DIR=\"/sd/jinxed/boxlog/host\"")
 
 # The ELF, built by elf/ into this build and embedded, as Lothesome's
