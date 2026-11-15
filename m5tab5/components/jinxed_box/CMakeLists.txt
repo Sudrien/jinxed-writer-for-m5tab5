@@ -1,6 +1,7 @@
-# jinxed_box: what Jinxed's .bin answers a boxed editor with, on top of
-# feckless_box_calls (u-jinxed-0003, UMODE.md). Nothing requires it yet,
-# so under MINIMAL_BUILD it is not built.
+# jinxed_box: the table Jinxed's .bin loads a boxed editor with,
+# feckless_box_calls' with writes held to /sd/jinxed (u-jinxed-0003, 0004,
+# UMODE.md). Nothing requires it yet, so under MINIMAL_BUILD it is not
+# built.
 #
 # SPDX-License-Identifier: MIT
 
@@ -8,5 +9,5 @@ idf_component_register(
     SRCS "src/jbox_storage.c"
     INCLUDE_DIRS "include"
     REQUIRES feckless_umode feckless_box_calls
-    PRIV_REQUIRES feckless_storage_handler esp_hw_support heap
+    PRIV_REQUIRES fatfs heap
 )

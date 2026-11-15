@@ -1,9 +1,11 @@
-# Host test for jinxed_box: jbox_storage.c as it is, with
+# Host test for jinxed_box: jbox_storage.c as it is, in front of
 # feckless_box_calls and feckless_umode's table and ext hook as they are,
-# against feckless_box_calls' own stand-ins for the board and storage,
-# over real files.
+# against feckless_box_calls' own stand-ins, over real files.
 #
 #   make -C components/jinxed_box/test FECKLESS=<feckless-libs at umode>
+#
+# The stand-ins are feckless's test/fake*; SRC follows its test Makefile's
+# list (u-feckless-0051) and needs the same change when that one does.
 #
 # SPDX-License-Identifier: MIT
 
@@ -14,20 +16,21 @@ B := $(FECKLESS)/components/feckless_box_calls
 CFLAGS := -std=gnu11 -g -O1 -Wall -Wextra -Werror \
           -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer \
           -D'JINXED_BOX_ROOT="jbox_root"' \
-          -Ifake -I$(B)/test/fake -I../include -I$(B)/include -I$(U)/include
+          -I$(B)/test/fake -I../include -I$(B)/include -I$(U)/include
 LDFLAGS := -fsanitize=address,undefined -lm
 SRC := jbox_test.c ../src/jbox_storage.c \
-       $(B)/src/box_calls.c $(B)/src/box_storage.c $(B)/src/box_audio.c \
+       $(B)/src/box_calls.c $(B)/src/box_storage.c $(B)/src/box_audio.c $(B)/src/box_rtos.c \
        $(B)/test/fake_board.c $(B)/test/fake_storage.c $(B)/test/fake_audio.c \
+       $(B)/test/fake_rtos.c $(B)/test/fake_drivers.c \
        $(U)/src/umode_calls.c $(U)/src/umode_box.c $(U)/src/umode_run.c
 
 all: run
 
-jbox_test: $(SRC) $(wildcard fake/*.h) ../include/jinxed_box.h
+jbox_test: $(SRC) ../include/jinxed_box.h
 	$(CC) $(CFLAGS) -o $@ $(SRC) $(LDFLAGS)
 
 run: jbox_test
-	rm -rf work && mkdir work && cd work && ASAN_OPTIONS=detect_leaks=1 ../jbox_test ../../answers.txt
+	rm -rf work && mkdir work && cd work && ASAN_OPTIONS=detect_leaks=1 ../jbox_test
 	rm -rf work
 
 clean:

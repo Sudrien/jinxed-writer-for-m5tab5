@@ -236,3 +236,81 @@ feckless_box_calls' stand-ins, over real files:
 
 *Not checked:* an ESP-IDF build; picolibc's `struct stat` and a 32-bit
 `long` (no RISC-V or 32-bit toolchain in the session); a board.
+
+## u-jinxed-0004 -- feckless's storage calls, with writes held to /sd/jinxed
+
+feckless-libs' umode branch now answers every storage call the editor
+makes. u-feckless-0047 (Defeatist's) added the writes, `stat`, `rename`,
+`mkdir` and the brief holds. u-feckless-0050 added `ferror`, `feof`,
+`clearerr`, `fileno`, `fsync` and `unlink`, and sets the app's errno on
+failure. u-feckless-0048 put `fprintf` in the app. Styled text is
+u-feckless-0051. So 0003's own FILE table goes, and every storage call is
+feckless's.
+
+What feckless does not do is keep a boxed app's writes to one directory.
+Its box guards the host's memory, not the card's files. That stays
+Jinxed's, for now, as a guard in front of feckless's handlers.
+`jinxed_box_calls()` is `feckless_box_calls_v1()`'s table, the same names
+in the same order, with these wrapped:
+
+- by path: `remove`, `unlink`, `mkdir`, `rmdir`, `utime`,
+  `storage_mark_hidden`; `rename` by both paths;
+- by path when the mode writes (`w`, `a`, `+`, or a mode that is not a
+  string in the box): `fopen`, `storage_io_open`;
+- refused when they would write: `f_open` with any of FatFs's write or
+  create bits, and `f_chmod`. FatFs's paths are drive-form, not `/sd`,
+  and the editor does not call FatFs.
+
+A wrapper copies the path out of the box, checks the copy (0003's rule:
+`JINXED_BOX_ROOT` or below, no `..` segment), and either passes the call,
+arguments unchanged, to feckless's handler, or returns feckless's failure
+value with the app's errno set to `EACCES` (`EFAULT` for a path that is
+not a string in the box). Reads stay uncontained, as feckless has them.
+If feckless's table lacks any wrapped name, `jinxed_box_calls()` returns
+NULL, so the load fails rather than runs unguarded. A path-writing call
+that feckless adds later is not guarded until it is added here.
+
+feckless's handler reads the path from the box again after the check, so
+a second thread of the app rewriting the string in between could get a
+path past it. That makes this a guard against the editor's mistakes, not
+against a hostile app. The box's own guarantee does not rest on it.
+
+Removed with 0003's table: `answers.txt` (Jinxed answers no name of its
+own now, so feckless's `boxcalls_names.txt` is the whole list),
+`jinxed_box_end()` (feckless's `feckless_box_calls_end()` closes and
+releases everything), and the test's own stand-in headers, which
+collided with feckless's after u-feckless-0045 to 0048. The test now
+uses feckless's stand-ins unchanged, and its source list follows
+feckless's test Makefile.
+
+*Checked:* `make -C m5tab5/components/jinxed_box/test FECKLESS=<feckless-libs
+at 6a6983c>` on the host under ASan and UBSan, over real files:
+- the table: same names, order, data and flags as feckless's; the
+  eleven wrapped, every other entry feckless's own;
+- doclog's sequence inside the root, through to feckless: mkdir and
+  `EEXIST`, a twin written, fsynced through fileno, opened `r+b` and
+  `ab`; the export unlinked and renamed in; utime, the trash, the hidden
+  mark; a `storage_io_open` for writing;
+- outside it: nine paths times nine writing modes for `fopen` and
+  `storage_io_open`, plus mkdir, rmdir, remove, unlink, utime, rename
+  either way, and the hidden mark. Each is refused with `EACCES`,
+  nothing is made, and an existing file is neither removed, renamed
+  nor truncated;
+- reads outside let through (fopen `r`, `storage_io_open` `rb`, stat,
+  opendir, `f_open` `FA_READ`); every FatFs write bit refused, inside
+  too; `f_chmod` refused;
+- `EFAULT` for host, unterminated and over-long paths; errno through a
+  `tp` outside the box not written.
+- Twelve changes are each caught: no `..` check, prefix only, `r+` not
+  a write, only `w` writing, an unterminated mode counted as a read
+  (caught only by errno after a first version of the test missed it,
+  since feckless refuses that open too), rename checking one end,
+  `f_open` refusing `FA_WRITE` only, `f_chmod` passed on, no `EACCES`,
+  an unchecked `tp`, a guard name not in feckless's table, mkdir left
+  unwrapped.
+- `jbox_storage.c` compiles at `-O2 -Wall -Werror=all -Wextra
+  -Werror=extra` against feckless's stand-ins. Its check of the FatFs
+  mode bits against `ff.h` is a `_Static_assert` that only the real
+  `ff.h` exercises; the stand-in defines `FA_READ` alone.
+
+*Not checked:* an ESP-IDF build; a board.

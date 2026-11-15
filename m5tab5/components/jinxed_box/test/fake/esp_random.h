@@ -1,4 +1,0 @@
-/* SPDX-License-Identifier: MIT */
-#pragma once
-#include <stdint.h>
-uint32_t esp_random(void);
