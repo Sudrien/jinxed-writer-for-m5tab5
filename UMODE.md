@@ -440,3 +440,22 @@ the ELF's build (its `project_include.cmake`), which a requirement from
 elfdeps satisfies. *Not checked:* a build after the change. It assumes
 the manager reads elfdeps' manifest as it reads main's, which ESP-IDF
 does for any component in a build.
+
+## u-jinxed-0008 -- boxlog: the ELF-only component named after its directory
+
+0007's ELF configure stopped: `Failed to resolve component
+'jinxed_boxlog_elfdeps' required by component 'main': unknown name`.
+ESP-IDF names a component after its directory, and 0007 put it in
+`elf/elfdeps`, so its name was `elfdeps`. main's `REQUIRES` named
+`jinxed_boxlog_elfdeps`, a name nothing in the build had. The directory
+is now `elf/jinxed_boxlog_elfdeps`, a name less likely to meet another
+component's than `elfdeps`. `elf/CMakeLists.txt` adds it by that path,
+and the comments in main's CMakeLists and manifest, and the README,
+follow. 0007's section above keeps its old path, as written then.
+
+The error came from the ELF's build, which means the .bin had configured
+with 0007. Its link is not reached until the ELF is built and embedded,
+so whether 0007 cured the duplicate libc is still to be seen.
+
+*Checked:* the configure log, as reported; that nothing in boxlog still
+names `elfdeps` alone. *Not checked:* a build after the change.

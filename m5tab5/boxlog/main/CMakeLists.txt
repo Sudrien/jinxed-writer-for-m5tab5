@@ -6,8 +6,8 @@
 #   writer's own main/, unchanged, DOCLOG_DIR the box's. The feckless
 #   components named are headers; their calls are imports, which
 #   feckless_box_calls answers through jinxed_box's guard. feckless_box_libc
-#   and feckless_abi_storage come from ../elf/elfdeps' manifest, which
-#   only that build has (u-jinxed-0007).
+#   and feckless_abi_storage come from the manifest of
+#   ../elf/jinxed_boxlog_elfdeps, which only that build has (u-jinxed-0007).
 # - by the project, as the .bin: host.c, the same probe natively with
 #   DOCLOG_DIR the host's, and the ELF embedded.
 set(_jm "${CMAKE_CURRENT_LIST_DIR}/../../main")

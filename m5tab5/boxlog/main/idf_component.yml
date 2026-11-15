@@ -18,7 +18,8 @@ dependencies:
   # component manager makes every dependency here a requirement of main,
   # in both builds, so the .bin linked feckless_box_libc -- an app's libc
   # -- beside IDF's, and stdin, strerror, fputc and the rest were defined
-  # twice. They are elf/elfdeps' dependencies, which only elf/ builds.
+  # twice. They are elf/jinxed_boxlog_elfdeps' dependencies, which only elf/
+  # builds.
   feckless_abi:
     git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
     path: components/feckless_abi

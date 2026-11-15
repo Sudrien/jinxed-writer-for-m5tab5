@@ -31,7 +31,7 @@ This is a project of its own. Its manifest names feckless-libs' `umode`
 branch, and the first configure writes its own `dependencies.lock`. The
 ELF's build writes `elf/dependencies.lock`, since its manifests differ:
 `feckless_box_libc` and `feckless_abi_storage` are named only in
-`elf/elfdeps`, so that the .bin does not link an app's libc
+`elf/jinxed_boxlog_elfdeps`, so that the .bin does not link an app's libc
 (u-jinxed-0007). Both locks resolve the same branch. After the first
 build, their feckless-libs commits should match. Its sdkconfig is the writer's
 `../sdkconfig.defaults`, plus `sdkconfig.defaults` here: region
