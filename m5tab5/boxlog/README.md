@@ -56,18 +56,25 @@ refuse any write outside `/sd/jinxed` anyway.
 ## The log
 
     boxlog: the host's run
-    boxlog: host: 400 appends in 9120 ms, 22800 us each, worst 61000 us
-    boxlog: host: synthetic replayed in 4 ms, 2325 bytes
-    boxlog: host: markdown of 55 lines in 1 ms
-    boxlog: host: 2026-11-15.md: seq 812, 31873 bytes, opened in 38 ms
-    boxlog: host: done in 10400 ms, /sd/jinxed/boxlog/host.txt
+    boxlog: host: 400 appends in 9507 ms, 23769 us each, worst 733005 us
+    boxlog: host: synthetic replayed in 97 ms, 2325 bytes
+    boxlog: host: markdown of 55 lines in 0 ms
+    boxlog: host: deletable2.md: seq 1, 82 bytes, opened in 16 ms
+    boxlog: host: done in 10666 ms, /sd/jinxed/boxlog/host.txt
     boxlog: the box's run, in 8192 KB, 259 calls
-    boxlog: box: 400 appends in ...
+    feckless_umode: host calls, last 5.0 s: 942/s, 994.3 ms/s in the host
+    feckless_umode:   fsync     80/s  6087.98 us each (2.94 waiting for the lock)  484.6 ms/s
     ...
-    boxlog: the probe ended after ... ms: reason 0
-    boxlog: SAME: the box and the host agree, 6 lines
+    boxlog: box: 400 appends in 9175 ms, 22939 us each, worst 684034 us
+    boxlog: box: synthetic replayed in 134 ms, 2325 bytes
+    ...
+    boxlog: the probe ended after 9902 ms: reason 0
+    boxlog: SAME: the box and the host agree, 3 lines
 
-(These numbers are made up to show the format. No board has run this yet.)
+(A board's run of u-jinxed-0008, trimmed and with the call statistics
+narrowed. It predates the large note, which adds three lines a run:
+`large: N pastes ... in N ms`, `large: replayed in N ms`, and
+`large: markdown of N lines in N ms, one window`.)
 
 - **SAME** is the result that matters. **DIFFER at line N** prints both
   lines: the box replayed, exported or styled something differently from
@@ -82,6 +89,9 @@ refuse any write outside `/sd/jinxed` anyway.
   interrupts would wait that long if they shared the core. That is why
   the editor runs on core 1.
 - **markdown**: computation with no host call at all, so one window.
+  The large note's (u-jinxed-0009, 200 KB) is the longest window the
+  probe makes. Its replay is the other figure to compare between the two
+  sides.
 - Call statistics come every 5 s while the box runs (u-feckless-0029):
   the busiest host calls, and what each costs.
 - **FAULTED** gives the cause, the pc, and the ELF address for

@@ -459,3 +459,74 @@ so whether 0007 cured the duplicate libc is still to be seen.
 
 *Checked:* the configure log, as reported; that nothing in boxlog still
 names `elfdeps` alone. *Not checked:* a build after the change.
+
+## u-jinxed-0009 -- boxlog's first board run, and a large note
+
+### The board's run of u-jinxed-0008 (54b487a)
+
+A Tab5 with an 8 GB SDHC card, holding one note with a log
+(`deletable2.md`, 82 bytes):
+
+    boxlog: host: 400 appends in 9507 ms, 23769 us each, worst 733005 us
+    boxlog: host: synthetic replayed in 97 ms, 2325 bytes
+    boxlog: host: markdown of 55 lines in 0 ms
+    boxlog: host: deletable2.md: seq 1, 82 bytes, opened in 16 ms
+    feckless_umode: app in its box at 0x48145000, 8192 KB, 259 calls; 52 KB used by the load
+    feckless_umode: app_main on core 1
+    feckless_umode: host calls, last 5.0 s: 942/s, 994.3 ms/s in the host
+    feckless_umode:   fsync     80/s  6087.98 us each (2.94 waiting for the lock)  484.6 ms/s
+    feckless_umode:   fopen     80/s  3669.98 us each (3.01 waiting for the lock)  293.6 ms/s
+    feckless_umode:   fwrite   105/s  1261.05 us each (3.17 waiting for the lock)  132.4 ms/s
+    feckless_umode:   fseek    158/s   247.61 us each (3.08 waiting for the lock)   39.1 ms/s
+    feckless_umode:   fflush    80/s   358.47 us each (3.00 waiting for the lock)   28.6 ms/s
+    boxlog: box: 400 appends in 9175 ms, 22939 us each, worst 684034 us
+    boxlog: box: synthetic replayed in 134 ms, 2325 bytes
+    boxlog: box: markdown of 55 lines in 0 ms
+    boxlog: box: deletable2.md: seq 1, 82 bytes, opened in 17 ms
+    boxlog: the probe ended after 9902 ms: reason 0
+    boxlog: SAME: the box and the host agree, 3 lines
+
+- **The box computes what the host does.** doclog's appends, replay and
+  export, and md's styling, gave the host's results through jinxed_box's
+  guard and feckless's handlers, with no fault and no refusal. This is
+  the first boxed run of any of the editor's code.
+- **An append costs the same in a box**: 22.9 ms there against the
+  host's 23.8 ms, within the card's variation. It is all card time. A
+  keystroke's append is, per twin, an fopen (3.7 ms), fseeks, an fwrite,
+  an fflush and an fsync (6.1 ms). The trap into the host and the 3 us
+  wait for the app's lock do not show beside that. The box spent 997 ms of
+  every second in host calls.
+- **The worst append**, 733 ms on the host and 684 ms in the box, is the
+  card stalling, since it happens on both sides. The writer on main
+  waits as long. That is a matter for main, and is not the box's.
+- **Replay** of the 2 KB synthetic note took 97 ms on the host and 134
+  ms in the box. That is mostly opening and reading two twins, with a
+  37 ms difference in the box that a note this small cannot explain.
+  The large note below gives a figure worth comparing.
+- **Windows were not measured.** The longest stretch without a host call
+  is computation over a large document, and this card had none.
+  Markdown took 0 ms over 55 lines.
+- elf_loader logged `Too much padding before segment[2], padding: 1071`
+  at load. The load succeeded and the run was correct. It is noted here,
+  not acted on.
+
+### The large note
+
+`boxlog.c`'s `large()`, after the synthetic note: 50 pastes of 4 KB of
+generated markdown (headings, emphasis, code, strike-through, lists,
+quotes, links), each one append, making 200 KB. The note is then closed,
+replayed and compared, and its 3391 lines are styled whole, timed. md.c
+makes no host call, so in a box that time is a single window. A result
+line, `large pastes ... replay same md ...`, joins the file. The host
+test requires it: 50 pastes, seq 50, 204800 bytes, `replay same`.
+
+*Checked:* `make -C m5tab5/boxlog/test`, all passing, the two sides'
+results identical. On a PC the large note's markdown takes 7 ms, and the
+P4 will be slower. `boxlog.c` at `-O2 -Wall -Werror=all -Wextra
+-Werror=extra`, firmware and ELF. *Not checked:* on a board.
+
+*What to look for:* `large: markdown of 3391 lines in N ms, one window`
+on the box's side. Under 5 ms there is nothing to do. At 20 ms or more, a
+keyboard interrupt sharing core 1 would wait that long, and the editor
+should style a screen's lines at a time rather than the document whole.
+Also compare `large: replayed in N ms` between the host and the box.

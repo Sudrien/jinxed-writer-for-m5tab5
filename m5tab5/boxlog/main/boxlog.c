@@ -50,6 +50,8 @@ static int64_t now_us(void) { return esp_timer_get_time(); }
 
 #define CAP          (256u * 1024u)     /* the longest text, as the editor's own */
 #define SYNTH_EDITS  400u               /* each an append: two writes, two fsyncs */
+#define LARGE_PASTES 50u                /* u-jinxed-0009: the large note, in pastes of */
+#define LARGE_PASTE  4096u              /* this many bytes: 200 KB */
 #define NOTES_MAX    32
 #define COPY_CHUNK   (32u * 1024u)
 #define TIME0        1767229200LL       /* 2026-01-01 01:00 UTC: every 'now' from here */
@@ -205,6 +207,102 @@ static void synthetic(FILE *out)
             (unsigned)lines, (unsigned)mh);
 }
 
+/* u-jinxed-0009: one generated line of markdown into p, at most room
+ * bytes with its newline; its length. Headings, emphasis, code, lists,
+ * plain words: what md.c styles. */
+static uint32_t gen_line(char *p, uint32_t room)
+{
+    static const char *const words[] = {
+        "the", "log", "*emphasis*", "**strong**", "`code`", "~~gone~~", "words",
+        "box", "_under_", "keystroke", "twin", "replay", "[a link](x)", "and",
+    };
+    static const char *const starts[] = { "", "", "", "# ", "## ", "- ", "> ", "1. " };
+    uint32_t n = 0;
+    const char *st = starts[rnd() % 8];
+    const uint32_t ls = (uint32_t)strlen(st);
+    if (ls + 1 >= room) return 0;
+    memcpy(p, st, ls);
+    n = ls;
+    const uint32_t nw = 3 + rnd() % 12;
+    for (uint32_t i = 0; i < nw; i++) {
+        const char *w = words[rnd() % (sizeof words / sizeof *words)];
+        const uint32_t lw = (uint32_t)strlen(w);
+        if (n + lw + 2 >= room) break;
+        if (n > ls) p[n++] = ' ';
+        memcpy(p + n, w, lw);
+        n += lw;
+    }
+    p[n++] = '\n';
+    return n;
+}
+
+/* u-jinxed-0009: a large note, LARGE_PASTES pastes of LARGE_PASTE bytes
+ * of generated markdown, each one append; replayed; and its markdown
+ * styled whole. Styling makes no host call, so in a box its time is one
+ * window, the longest the probe makes; replaying 200 KB is the other
+ * figure the 0008 run, with a 2 KB note, could not give. */
+static void large(FILE *out)
+{
+    uint32_t len = 0;
+    if (doclog_open("large.md", s_a, &len, TIME0, true) != ESP_OK || len != 0) {
+        fprintf(out, "large open failed\n");
+        return;
+    }
+    s_rng = 0x6c617267u;                            /* "larg" */
+    int64_t t_append = 0, worst = 0;
+    unsigned failed = 0;
+    for (uint32_t i = 0; i < LARGE_PASTES; i++) {
+        memcpy(s_b, s_a, len);
+        uint32_t k = 0;
+        while (k < LARGE_PASTE) {
+            const uint32_t g = gen_line(s_b + len + k, LARGE_PASTE - k);
+            if (g == 0) break;
+            k += g;
+        }
+        while (k < LARGE_PASTE) s_b[len + k++] = '\n';  /* exactly a paste's length */
+        const int64_t t0 = now_us();
+        const esp_err_t e = doclog_append(s_a, len, s_b, len + k, TIME0 + i, true, DOCLOG_SRC_USER, NULL);
+        const int64_t dt = now_us() - t0;
+        t_append += dt;
+        if (dt > worst) worst = dt;
+        if (e != ESP_OK) {
+            failed++;
+            continue;
+        }
+        char *t = s_a;
+        s_a = s_b;
+        s_b = t;
+        len += k;
+    }
+    const uint32_t seq = doclog_seq();
+    doclog_close();
+    LOG(WHERE ": large: %u pastes of %u bytes in %u ms, worst %u ms", (unsigned)LARGE_PASTES,
+        (unsigned)LARGE_PASTE, (unsigned)(t_append / 1000), (unsigned)(worst / 1000));
+
+    uint32_t rlen = 0;
+    int64_t t0 = now_us();
+    const esp_err_t e = doclog_open("large.md", s_c, &rlen, TIME0, true);
+    LOG(WHERE ": large: replayed in %u ms, %u bytes", ms_since(t0), (unsigned)rlen);
+    const bool same = e == ESP_OK && rlen == len && memcmp(s_c, s_a, len) == 0 && doclog_seq() == seq;
+    doclog_close();
+
+    t0 = now_us();
+    uint32_t mh = FNV0, lines = 0;
+    for (uint32_t i = 0; i < len;) {
+        uint32_t j = i;
+        while (j < len && s_a[j] != '\n') j++;
+        md_line(s_a + i, j - i, (uint8_t *)s_b);
+        mh = fnv(mh, s_b, j - i);
+        lines++;
+        i = j + 1;
+    }
+    LOG(WHERE ": large: markdown of %u lines in %u ms, one window", (unsigned)lines, ms_since(t0));
+
+    fprintf(out, "large pastes %u failed %u seq %u len %u text %08x replay %s md %u %08x\n",
+            (unsigned)LARGE_PASTES, failed, (unsigned)seq, (unsigned)len,
+            (unsigned)fnv(FNV0, s_a, len), same ? "same" : "DIFFERS", (unsigned)lines, (unsigned)mh);
+}
+
 /* src to dst, whole; false if src will not open or a write fails. */
 static bool copy_file(const char *src, const char *dst)
 {
@@ -306,6 +404,7 @@ int boxlog_run(const char *result)
     }
     const int64_t t0 = now_us();
     synthetic(out);
+    large(out);
     notes(out);
     fclose(out);
     LOG(WHERE ": done in %u ms, %s", ms_since(t0), result);
