@@ -71,7 +71,7 @@ static void compare(void)
     fclose(b);
 }
 
-void app_main(void)
+static void run(void)
 {
     /* The card, as main.c brings it up, without the keyboard's class. */
     ESP_ERROR_CHECK(tab5io_init());
@@ -132,4 +132,14 @@ void app_main(void)
 
     /* 3. */
     compare();
+}
+
+/* u-jinxed-0011: the run between two marker lines, so the part of the log
+ * to copy is plain: from the first to the second, whichever way run()
+ * ends. Everything before is the ROM's and the bootloader's. */
+void app_main(void)
+{
+    ESP_LOGI(TAG, "======================== boxlog: copy from here ========================");
+    run();
+    ESP_LOGI(TAG, "======================== boxlog: copy to here ==========================");
 }

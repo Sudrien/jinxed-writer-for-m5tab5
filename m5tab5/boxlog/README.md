@@ -55,6 +55,10 @@ refuse any write outside `/sd/jinxed` anyway.
 
 ## The log
 
+Copy from `boxlog: ===... copy from here` to `... copy to here`
+(u-jinxed-0011). Everything before the first marker is the ROM's and the
+bootloader's, and the second marker comes however the run ends.
+
     boxlog: the host's run
     boxlog: host: 400 appends in 9507 ms, 23769 us each, worst 733005 us
     boxlog: host: synthetic replayed in 97 ms, 2325 bytes

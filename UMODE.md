@@ -605,3 +605,61 @@ ms: layout() should rewrap only from the edited line down, and
 word_count() should be kept as a running total. Those are main's changes
 as much as the box's, since the trusted editor pays the same time,
 only with interrupts on.
+
+## u-jinxed-0011 -- the editor's passes on a board; markers in boxlog's log
+
+### The board's run of u-jinxed-0010 (dae16d7)
+
+    boxlog: host: large: layout 8366 us (6375 lines), word_count 6371 us, pos_line 160 us: one window each
+    boxlog: host: one-paragraph: layout 6297 us (4806 lines), word_count 6401 us, pos_line 114 us: one window each
+    boxlog: host: one-paragraph: markdown of one 204800-byte line in 25 ms, one window
+    boxlog: box: large: replayed in 916 ms, 204800 bytes
+    boxlog: box: large: markdown of 3391 lines in 32 ms, one window
+    boxlog: box: large: layout 8344 us (6375 lines), word_count 6359 us, pos_line 161 us: one window each
+    boxlog: box: one-paragraph: layout 6280 us (4806 lines), word_count 6391 us, pos_line 121 us: one window each
+    boxlog: box: one-paragraph: markdown of one 204800-byte line in 27 ms, one window
+    boxlog: SAME: the box and the host agree, 7 lines
+
+(Appends, the synthetic note and the large note's pastes and replay as in
+0010's run.)
+
+- **SAME, 7 lines**: the line table, word count and cursor line of the
+  copied passes agree too.
+- **The editor's per-keystroke windows, at 200 KB, in the box:**
+  `layout()` 8.3 ms, `word_count()` 6.4 ms, `pos_line()` 0.16 ms. Each is
+  a separate window. Linearly, at the editor's 256 KB limit (TEXT_MAX),
+  that is about 10.4, 8.0 and 0.2 ms. All are under 20 ms, so **the
+  editor's draw loop can be boxed as it is**, on core 1, with core 0
+  keeping the USB keyboard's and the panel's interrupts. They are over
+  5 ms, so it would not do on the panel's core. The host's figures are
+  the same, as for all computation so far.
+- **`word_count()` is slow for what it does**, about 31 ns a byte. Its
+  byte-at-a-time loop over PSRAM is memory-bound. A running total, kept
+  by the edit functions, would remove it from every keystroke. That
+  would be worth doing on main for the trusted editor too, and is not
+  needed for the box.
+- **`md_line()` on one 200 KB paragraph: 27 ms**, or about 34 ms at
+  256 KB, the one window over 20 ms. The editor styles the logical line
+  of each drawn row, so only a document that is a single paragraph that
+  long reaches it, and only once per draw. If that matters, md_for()
+  could style from the row's start and not from the line's. That is
+  noted, not done.
+- One-paragraph layout is faster than the large note's (6.3 against
+  8.3 ms), because `head_line()` runs once per logical line, and the one
+  paragraph has one.
+
+So, of 0001's list, the windows are settled for doclog, md and the draw
+passes. What remains before step 4 (the editor in the box) is what the
+box cannot answer at all: the editor's calls into the host's own modules
+(the keyboard, the sender, power, settings) and the waiting on keys.
+
+### Markers
+
+boxlog's `app_main()` now logs a `=== boxlog: copy from here ===` line
+first and a `=== boxlog: copy to here ===` line last, around `run()`
+(the old body), so they bracket every way it can end. The README says
+so.
+
+*Checked:* `host.c` `-fsyntax-only` at `-O2 -Wall -Werror=all -Wextra
+-Werror=extra` against feckless-libs' headers. *Not checked:* on a
+board.
