@@ -805,3 +805,19 @@ during the call, as the sender does. Both files compile at `-O2 -Wall
 *Not checked:* settings.c compiled (its headers are the writer's whole
 board); an ESP-IDF build; a board. The ELF's side, the shim and the
 editor built boxed, is next.
+
+## u-jinxed-0014 -- boxlog's manifest names feckless_nvs_handler
+
+boxlog's configure, with 0013 and feckless-libs at 4832315, stopped:
+`Failed to resolve component 'feckless_nvs_handler' required by component
+'feckless_box_calls'`. Since u-feckless-0053, feckless_box_calls answers
+NVS in a box and requires the handler by name. boxlog's manifest names
+the components that feckless's require (0005), and now names this one
+too. It requires only IDF's `nvs_flash`. The audio codec
+feckless_box_calls can answer (u-feckless-0052) is an optional
+requirement, and without it that table is empty. The writer's own
+manifest already names the handler.
+
+*Checked:* the configure log, as reported; feckless_box_calls' and
+feckless_nvs_handler's requirements at 4832315. *Not checked:* a build
+after the change.

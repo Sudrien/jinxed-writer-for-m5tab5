@@ -14,6 +14,9 @@ dependencies:
   # the two USB class drivers because those components require them by
   # name.
   #
+  # u-jinxed-0014: feckless_nvs_handler, because feckless_box_calls
+  # requires it by name since it answers NVS in a box (u-feckless-0053).
+  #
   # u-jinxed-0007: not feckless_box_libc or feckless_abi_storage. The
   # component manager makes every dependency here a requirement of main,
   # in both builds, so the .bin linked feckless_box_libc -- an app's libc
@@ -55,4 +58,8 @@ dependencies:
   usb_host_uac:
     git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
     path: components/usb_host_uac
+    version: "umode"
+  feckless_nvs_handler:
+    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
+    path: components/feckless_nvs_handler
     version: "umode"

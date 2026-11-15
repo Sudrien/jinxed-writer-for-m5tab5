@@ -291,3 +291,4 @@ worked. A tag move keeps that line.
 - u-jinxed-0011 boxlog: the editor's passes on a board recorded; copy markers in the log
 - u-jinxed-0012 jinxed_box: feckless's write filter in place of the wrappers
 - u-jinxed-0013 jinxed_box: the boundary's host side, Jinxed's own calls
+- u-jinxed-0014 boxlog: the manifest names feckless_nvs_handler
