@@ -28,15 +28,18 @@ set(SDKCONFIG_DEFAULTS "${_m5}/sdkconfig.defaults"
                        "${CMAKE_CURRENT_LIST_DIR}/../sdkconfig.defaults"
                        "${CMAKE_BINARY_DIR}/sdkconfig.elf.defaults")
 
-set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}/../main")
+# u-jinxed-0007: elfdeps, whose manifest names what only the ELF links.
+set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}/../main" "${CMAKE_CURRENT_LIST_DIR}/elfdeps")
 set(COMPONENTS main)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 idf_build_set_property(JINXED_BOXLOG_ELF 1)
-# The .bin's lock: the ELF's feckless is the .bin's commit, not a fresh
-# resolve of the branch.
-idf_build_set_property(DEPENDENCIES_LOCK "${CMAKE_CURRENT_LIST_DIR}/../dependencies.lock")
+# u-jinxed-0007: a lock of its own, elf/dependencies.lock, not the .bin's.
+# The two builds' manifests now differ (elfdeps is the ELF's alone), and
+# one lock shared by two sets of manifests would be solved again by each
+# build in turn. Both resolve feckless-libs' umode branch; if it moved
+# between the two configures, the commits in the two locks differ.
 
 project(jinxed_boxlog_probe)
 

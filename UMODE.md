@@ -403,3 +403,40 @@ ELF side builds with make inside it, and its list already had lwip.
 *Checked:* the board's build log, as reported. *Not checked:* a build
 after the change. If the ELF's build stops next, its error will come
 from make, under `build/elf`.
+
+## u-jinxed-0007 -- boxlog's .bin no longer links an app's libc
+
+With 0006, the .bin's link failed with `stdin`, `stdout`, `stderr`,
+`strerror`, `getc`, `fgetc`, `putc` and `fputc` each defined twice: by
+`feckless_box_libc` (`box_stdio.c`, `box_string.c`, u-feckless-0048) and
+by IDF's `esp_libc` and picolibc. The .bin should not link
+`feckless_box_libc` at all, since it is the part of libc a boxed app
+links into its own ELF. It did so because the component manager makes
+every dependency in a component's manifest a requirement of that
+component. `main/idf_component.yml` named `feckless_box_libc`, so main
+required it in both builds, not only in the ELF's, where `REQUIRES` names
+it.
+
+- `m5tab5/boxlog/elf/elfdeps`, a component with no code. Its manifest
+  holds the ELF's own dependencies, `feckless_box_libc` and
+  `feckless_abi_storage`, and it requires both. Only `elf/` adds it
+  (`EXTRA_COMPONENT_DIRS`), and the ELF's main requires it.
+- `main/idf_component.yml` drops those two. What it keeps is what both
+  builds need.
+- `elf/` keeps a lock of its own, `elf/dependencies.lock`, instead of
+  sharing the .bin's. One lock shared by two sets of manifests would be
+  solved again by each build in turn. Both resolve the umode branch, so
+  their commits match unless the branch moves between the two
+  configures. The README says to compare them.
+
+Lothesome's umode branch lists `feckless_box_libc` in its main manifest,
+the same way, beside its standalone .bin. Its board runs predate
+u-feckless-0048, which added the colliding definitions, so its .bin
+would likely fail the same way now. That is not checked here.
+
+*Checked:* the board's link log, as reported; that
+`feckless_abi_box_elf()` finds `feckless_box_libc` by component name in
+the ELF's build (its `project_include.cmake`), which a requirement from
+elfdeps satisfies. *Not checked:* a build after the change. It assumes
+the manager reads elfdeps' manifest as it reads main's, which ESP-IDF
+does for any component in a build.

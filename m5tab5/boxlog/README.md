@@ -28,8 +28,12 @@ ESP-IDF 6.1, from `m5tab5/boxlog`:
     idf.py build flash monitor
 
 This is a project of its own. Its manifest names feckless-libs' `umode`
-branch, and the first configure writes its own `dependencies.lock`, which
-`elf/` builds against too. Its sdkconfig is the writer's
+branch, and the first configure writes its own `dependencies.lock`. The
+ELF's build writes `elf/dependencies.lock`, since its manifests differ:
+`feckless_box_libc` and `feckless_abi_storage` are named only in
+`elf/elfdeps`, so that the .bin does not link an app's libc
+(u-jinxed-0007). Both locks resolve the same branch. After the first
+build, their feckless-libs commits should match. Its sdkconfig is the writer's
 `../sdkconfig.defaults`, plus `sdkconfig.defaults` here: region
 protection off, the ELF in PSRAM, FatFs configured as the storage
 section requires, and call statistics on. The ELF build ends with

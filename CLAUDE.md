@@ -284,3 +284,4 @@ worked. A tag move keeps that line.
 - u-jinxed-0004 Box: feckless's storage calls, with writes held to /sd/jinxed
 - u-jinxed-0005 boxlog: the log replayed natively and in a box, compared
 - u-jinxed-0006 boxlog: the .bin requires lwip, for elf_loader
+- u-jinxed-0007 boxlog: the .bin no longer links feckless_box_libc

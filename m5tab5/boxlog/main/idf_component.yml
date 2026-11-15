@@ -4,25 +4,24 @@ dependencies:
 
   # u-jinxed-0005: feckless-libs' umode branch, as the writer's manifest on
   # this branch names it (u-jinxed-0002); this project's own
-  # dependencies.lock records the commit, and elf/ builds against the same
-  # lock. Not the writer's manifest (../../main/idf_component.yml).
+  # dependencies.lock records the commit. Not the writer's manifest
+  # (../../main/idf_component.yml).
   #
-  # feckless_abi, feckless_abi_storage and feckless_box_libc build the ELF;
-  # feckless_umode and feckless_box_calls are the .bin's side, the box;
-  # the drivers and the storage handler bring the card up, and are the
-  # ELF's headers; graphics, fatfs and the two USB class drivers because
-  # those components require them by name.
+  # What both builds of main need: feckless_umode and feckless_box_calls,
+  # the .bin's side, the box; feckless_abi, which feckless_box_calls
+  # requires and the ELF builds with; the drivers and the storage handler,
+  # which bring the card up and are the ELF's headers; graphics, fatfs and
+  # the two USB class drivers because those components require them by
+  # name.
+  #
+  # u-jinxed-0007: not feckless_box_libc or feckless_abi_storage. The
+  # component manager makes every dependency here a requirement of main,
+  # in both builds, so the .bin linked feckless_box_libc -- an app's libc
+  # -- beside IDF's, and stdin, strerror, fputc and the rest were defined
+  # twice. They are elf/elfdeps' dependencies, which only elf/ builds.
   feckless_abi:
     git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
     path: components/feckless_abi
-    version: "umode"
-  feckless_abi_storage:
-    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
-    path: components/feckless_abi_storage
-    version: "umode"
-  feckless_box_libc:
-    git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git
-    path: components/feckless_box_libc
     version: "umode"
   feckless_umode:
     git: https://github.com/Sudrien/feckless-libs-for-m5tab5.git

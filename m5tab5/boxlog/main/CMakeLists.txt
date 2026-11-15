@@ -5,7 +5,9 @@
 # - by elf/, as the boxed ELF: the probe with doclog.c and md.c from the
 #   writer's own main/, unchanged, DOCLOG_DIR the box's. The feckless
 #   components named are headers; their calls are imports, which
-#   feckless_box_calls answers through jinxed_box's guard.
+#   feckless_box_calls answers through jinxed_box's guard. feckless_box_libc
+#   and feckless_abi_storage come from ../elf/elfdeps' manifest, which
+#   only that build has (u-jinxed-0007).
 # - by the project, as the .bin: host.c, the same probe natively with
 #   DOCLOG_DIR the host's, and the ELF embedded.
 set(_jm "${CMAKE_CURRENT_LIST_DIR}/../../main")
@@ -19,6 +21,7 @@ if(_boxlog_elf)
                  esp_timer esp_hw_support heap
                  lwip                    # for elf_loader's esp_elf_symbol.c; as Defeatist's boxwin (u-defeatist-0003)
                  feckless_box_libc       # linked into the ELF
+                 jinxed_boxlog_elfdeps   # u-jinxed-0007: where the two above come from
     )
     target_compile_definitions(${COMPONENT_LIB} PRIVATE BOXLOG_ELF=1
                                "DOCLOG_DIR=\"/sd/jinxed/boxlog/box\"")
