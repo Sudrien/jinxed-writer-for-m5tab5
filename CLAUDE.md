@@ -82,6 +82,9 @@ clash with a patch that lands on main meanwhile. Look at the last
 and Lothesome have the same arrangement (`u-feckless-NNNN` and so on).
 When the branch merges, its entries move into the series of the release
 it goes into.
+The branch pins feckless-libs' own `umode` branch by name, not a tag
+(u-jinxed-0002): the one exception to "pin by tag" below, and main's
+manifest keeps its tag.
 
 Within a patch, change the lines that must change and no others. No
 reflowing, no drive-by renames, no reorganising code being passed
@@ -276,3 +279,4 @@ worked. A tag move keeps that line.
 ## u-jinxed numbers used
 
 - u-jinxed-0001 Open the umode branch: u-jinxed numbering and what is known
+- u-jinxed-0002 Manifest: feckless-libs' umode branch in place of v0.9.10

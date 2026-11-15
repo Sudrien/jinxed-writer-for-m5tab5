@@ -103,11 +103,11 @@ from a link:
 
 **Intended order**, to be revised by what the board says:
 
-1. `u-jinxed-0002`: the feckless pins move from `v0.9.10` to `umode`,
-   and `feckless_umode`, `feckless_box_calls` and `feckless_box_libc` are
-   added. Following Lothesome, the branch pins feckless-libs' branch
-   rather than a tag, and main's manifest stays on its tag. Nothing is
-   boxed yet. A board run should match main's.
+1. `u-jinxed-0002`: the feckless pins move from `v0.9.10` to `umode`.
+   Following Lothesome, the branch pins feckless-libs' branch rather
+   than a tag, and main's manifest stays on its tag. Nothing is boxed
+   yet. A board run should match main's. (0002 left the three box
+   components out; they come with the patch that requires them.)
 2. `CONFIG_BOOTLOADER_REGION_PROTECTION_ENABLE=n` and a second build
    target, `m5tab5/elf/`, which builds the boxed modules as an ELF for
    the .bin to embed. It starts with `doclog.c` and `md.c`, which need
@@ -124,3 +124,42 @@ Releases stay on main until a boxed editor matches the trusted one: the
 same twins, the same export, and no key lost while a window runs.
 
 *Not checked:* anything above on a board, or built with ESP-IDF.
+
+## u-jinxed-0002 -- feckless-libs' umode branch in place of v0.9.10
+
+`m5tab5/main/idf_component.yml`: all twelve feckless pins move from
+`v0.9.10` to `umode`, feckless-libs' branch at 27229f8 when this was
+written: v0.10.2 with u-feckless-0001 to 0044. The comment says why.
+The esp_hosted cap (0016) and the IDF floor (6.1) are unchanged.
+`feckless_umode`, `feckless_box_calls` and `feckless_box_libc` are not
+added yet. With `MINIMAL_BUILD` nothing would build them until main
+requires them, and they come in with the patch that does.
+
+What the move brings to this firmware, from the diff of v0.9.10 against
+27229f8 outside the three box components:
+
+- IDF 5.x support removed throughout (feckless-libs 4f2ce99). This
+  firmware was already 6.1 only.
+- `usb_host_msc` and `usb_host_uac` require `espressif/usb` without the
+  version rule, and `usb_host_msc` always builds its `esp_blockdev`
+  diskio.
+- The storage handler's mount poll is quiet. While the slot is empty, the
+  SD driver's per-attempt errors and SD_HOST's INFO line are turned off
+  around each attempt and then put back (u-feckless-0018, 0019). The boot
+  mount still logs.
+- gfx's blit timing (u-feckless-0032, 0033), behind a Kconfig option
+  that defaults off.
+- No header this firmware includes changes, apart from comments
+  (`wifi.h`, `feckless_cert.h`).
+
+**This patch touches the manifest:** the next build re-resolves
+`dependencies.lock` (not committed here), fetching the branch's head at
+that moment. A later push to feckless-libs' umode branch changes what a
+fresh resolve gets.
+
+*Checked:* the diffs above, read. *Not checked:* an ESP-IDF build, since
+the registry cannot be reached from the session; a board.
+
+*What to look for on a Tab5:* the Libraries section of the settings page
+lists the feckless components at 0.10.2. Everything else should be as
+on main, with no `send_op_cond` errors repeating while the card is out.
