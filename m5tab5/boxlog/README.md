@@ -89,9 +89,14 @@ narrowed. It predates the large note, which adds three lines a run:
   interrupts would wait that long if they shared the core. That is why
   the editor runs on core 1.
 - **markdown**: computation with no host call at all, so one window.
-  The large note's (u-jinxed-0009, 200 KB) is the longest window the
-  probe makes. Its replay is the other figure to compare between the two
-  sides.
+  The large note's whole-document figure (u-jinxed-0009) is not
+  something the editor does, since it styles one logical line per drawn
+  row. The `one-paragraph` figure is the editor's worst case: one
+  200 KB line.
+- **layout, word_count, pos_line** (u-jinxed-0010): copies of the
+  editor's passes over the whole text. draw() runs the first two on every
+  keystroke. In a box each is one window, so these are the figures that
+  decide how large a document a boxed editor can keep responsive.
 - Call statistics come every 5 s while the box runs (u-feckless-0029):
   the busiest host calls, and what each costs.
 - **FAULTED** gives the cause, the pc, and the ELF address for

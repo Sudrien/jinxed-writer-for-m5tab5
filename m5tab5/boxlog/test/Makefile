@@ -37,6 +37,8 @@ run: probe_host probe_box mknotes
 	cd work && cmp sd/jinxed/boxlog/box.txt sd/jinxed/boxlog/box2.txt
 	cd work && grep -q "replay same export ok" sd/jinxed/boxlog/host.txt
 	cd work && grep -q "^large pastes 50 failed 0 seq 50 len 204800 .* replay same" sd/jinxed/boxlog/host.txt
+	cd work && grep -q "^editor large lines " sd/jinxed/boxlog/host.txt
+	cd work && grep -q "^editor one-paragraph lines " sd/jinxed/boxlog/host.txt
 	cd work && grep -q "^notes 4$$" sd/jinxed/boxlog/host.txt
 	cd work && ! grep -qE "open error|copy failed|open failed|FAILED|DIFFERS" sd/jinxed/boxlog/host.txt
 	cd work && mkdir chk && tar xf before.tar -C chk && for f in chk/sd/jinxed/.[!.]*; do cmp $$f sd/jinxed/$${f#chk/sd/jinxed/}; done

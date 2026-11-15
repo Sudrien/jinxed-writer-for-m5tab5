@@ -57,6 +57,7 @@ static int64_t now_us(void) { return esp_timer_get_time(); }
 #define TIME0        1767229200LL       /* 2026-01-01 01:00 UTC: every 'now' from here */
 
 static char *s_a, *s_b, *s_c;           /* the text, the next text, the replay */
+static uint32_t *s_ls, *s_le;           /* u-jinxed-0010: the editor's line table, CAP + 2 each */
 static char s_names[NOTES_MAX][256];
 
 static uint32_t fnv(uint32_t h, const void *p, size_t n)
@@ -236,6 +237,103 @@ static uint32_t gen_line(char *p, uint32_t room)
     return n;
 }
 
+/* ---- u-jinxed-0010: the editor's passes over the whole text -------------
+ * Copied from main/editor.c at be58350 -- line_from(), head_line(),
+ * layout(), word_count(), pos_line() -- with its statics as parameters and
+ * display_markdown() true. They are static there and tangled with the
+ * display, so the probe times copies; if editor.c's change, these must be
+ * copied again. draw() runs layout() and word_count() for every keystroke
+ * (editor.c:436, 460), each over the whole text with no host call between:
+ * in a box, each is one window, growing with the document. */
+#define ED_COLS       45      /* (720 - 2 * 40) / GFX_GLYPH_W(2): portrait, scale 2, the most lines */
+#define ED_COLS_HEAD  42      /* / GFX_HEAVY_W(2) */
+
+static bool ed_head_line(const char *t, uint32_t len, uint32_t at)
+{
+    uint32_t a = at;
+    while (a > 0 && t[a - 1] != '\n') a--;
+    uint32_t b = a;
+    while (b < len && t[b] != '\n' && b - a < 16) b++;
+    return md_is_heading(t + a, b - a);
+}
+
+static void ed_line_from(const char *t, uint32_t len, uint32_t s, int cols, uint32_t *end, uint32_t *next)
+{
+    uint32_t last_space = UINT32_MAX;
+    for (uint32_t i = s; i < len; i++) {
+        const char c = t[i];
+        if (c == '\n') { *end = i; *next = i + 1; return; }
+        if (i - s == (uint32_t)cols) {
+            if (c == ' ') { *end = i; *next = i + 1; return; }
+            if (last_space != UINT32_MAX) { *end = last_space; *next = last_space + 1; return; }
+            *end = i; *next = i;
+            return;
+        }
+        if (c == ' ') last_space = i;
+    }
+    *end = len;
+    *next = len + 1;
+}
+
+static uint32_t ed_layout(const char *t, uint32_t len)
+{
+    uint32_t s = 0, lines = 0;
+    bool head = false;
+    for (;;) {
+        uint32_t e, n;
+        if (s == 0 || t[s - 1] == '\n') head = ed_head_line(t, len, s);
+        ed_line_from(t, len, s, head ? ED_COLS_HEAD : ED_COLS, &e, &n);
+        s_ls[lines] = s;
+        s_le[lines] = e;
+        lines++;
+        if (n > len) break;
+        s = n;
+    }
+    return lines;
+}
+
+static uint32_t ed_word_count(const char *t, uint32_t len)
+{
+    uint32_t n = 0;
+    bool in_word = false;
+    for (uint32_t i = 0; i < len; i++) {
+        const bool sp = t[i] == ' ' || t[i] == '\n' || t[i] == '\t';
+        if (!sp && !in_word) n++;
+        in_word = !sp;
+    }
+    return n;
+}
+
+/* editor.c's pos_line(): which line p is on, by a walk from the top. */
+static uint32_t ed_pos_line(uint32_t lines, uint32_t len, uint32_t p)
+{
+    for (uint32_t l = 0; l < lines; l++) {
+        const uint32_t next = l + 1 < lines ? s_ls[l + 1] : len + 1;
+        if (p >= s_ls[l] && p < next) return l;
+    }
+    return lines - 1;
+}
+
+/* The three, timed over text: each a window in a box. */
+static void editor_passes(FILE *out, const char *what, const char *t, uint32_t len)
+{
+    int64_t t0 = now_us();
+    const uint32_t lines = ed_layout(t, len);
+    const unsigned us_layout = (unsigned)(now_us() - t0);
+    t0 = now_us();
+    const uint32_t words = ed_word_count(t, len);
+    const unsigned us_words = (unsigned)(now_us() - t0);
+    t0 = now_us();
+    const uint32_t at = ed_pos_line(lines, len, len);       /* the cursor at the end: the longest walk */
+    const unsigned us_pos = (unsigned)(now_us() - t0);
+    LOG(WHERE ": %s: layout %u us (%u lines), word_count %u us, pos_line %u us: one window each",
+        what, us_layout, (unsigned)lines, us_words, us_pos);
+    uint32_t h = fnv(FNV0, s_ls, lines * sizeof *s_ls);
+    h = fnv(h, s_le, lines * sizeof *s_le);
+    fprintf(out, "editor %s lines %u table %08x words %u end-line %u\n", what, (unsigned)lines,
+            (unsigned)h, (unsigned)words, (unsigned)at);
+}
+
 /* u-jinxed-0009: a large note, LARGE_PASTES pastes of LARGE_PASTE bytes
  * of generated markdown, each one append; replayed; and its markdown
  * styled whole. Styling makes no host call, so in a box its time is one
@@ -301,6 +399,17 @@ static void large(FILE *out)
     fprintf(out, "large pastes %u failed %u seq %u len %u text %08x replay %s md %u %08x\n",
             (unsigned)LARGE_PASTES, failed, (unsigned)seq, (unsigned)len,
             (unsigned)fnv(FNV0, s_a, len), same ? "same" : "DIFFERS", (unsigned)lines, (unsigned)mh);
+
+    /* u-jinxed-0010: what a keystroke in this note would cost the editor
+     * before it draws, and the same with no newline at all -- one
+     * paragraph, the worst layout() and md_line() can be given. */
+    editor_passes(out, "large", s_a, len);
+    for (uint32_t i = 0; i < len; i++) if (s_a[i] == '\n') s_a[i] = ' ';
+    editor_passes(out, "one-paragraph", s_a, len);
+    t0 = now_us();
+    md_line(s_a, len, (uint8_t *)s_b);
+    LOG(WHERE ": one-paragraph: markdown of one %u-byte line in %u ms, one window", (unsigned)len, ms_since(t0));
+    fprintf(out, "md one-paragraph %08x\n", (unsigned)fnv(FNV0, s_b, len));
 }
 
 /* src to dst, whole; false if src will not open or a write fails. */
@@ -385,7 +494,9 @@ int boxlog_run(const char *result)
         s_a = BIG(CAP);
         s_b = BIG(CAP);
         s_c = BIG(CAP);
-        if (!s_a || !s_b || !s_c || doclog_init(CAP) != ESP_OK) {
+        s_ls = BIG((CAP + 2) * sizeof *s_ls);
+        s_le = BIG((CAP + 2) * sizeof *s_le);
+        if (!s_a || !s_b || !s_c || !s_ls || !s_le || doclog_init(CAP) != ESP_OK) {
             LOG(WHERE ": no memory");
             return -1;
         }

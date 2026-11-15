@@ -530,3 +530,78 @@ on the box's side. Under 5 ms there is nothing to do. At 20 ms or more, a
 keyboard interrupt sharing core 1 would wait that long, and the editor
 should style a screen's lines at a time rather than the document whole.
 Also compare `large: replayed in N ms` between the host and the box.
+
+## u-jinxed-0010 -- the large note on a board, and the editor's own passes
+
+### The board's run of u-jinxed-0009 (be58350)
+
+    boxlog: host: large: 50 pastes of 4096 bytes in 5546 ms, worst 659 ms
+    boxlog: host: large: replayed in 789 ms, 204800 bytes
+    boxlog: host: large: markdown of 3391 lines in 31 ms, one window
+    boxlog: box: large: 50 pastes of 4096 bytes in 4767 ms, worst 684 ms
+    boxlog: box: large: replayed in 914 ms, 204800 bytes
+    boxlog: box: large: markdown of 3391 lines in 32 ms, one window
+    boxlog: SAME: the box and the host agree, 4 lines
+
+(Synthetic note and appends as in 0009's run: 22.6 ms an append on the
+host and 23.6 ms in the box, with the worst at 561 and 765 ms.)
+
+- **SAME again**, now over a 200 KB note: 50 appends of 4 KB records,
+  a replay, and 3391 lines styled.
+- **Computation costs the same in the box:** 32 ms styling against the
+  host's 31. The box adds nothing to code that makes no call, as it
+  should. The P4 styles markdown at about 0.16 ms a KB.
+- **The 32 ms is not a window the editor makes.** editor.c styles the
+  logical line of each drawn row (`md_for()`, 0031), and its gfx calls
+  between rows end a window. A normal paragraph costs a fraction of a
+  millisecond. Only one very long logical line approaches the
+  whole-document figure, which is measured below.
+- **Replay: 914 ms in the box against 789**, 16 % more. It reads as it
+  goes (fread at 482 a second in the box's statistics), so it is not
+  one window. The difference is the box's per-call cost over the many
+  small reads of the twins. It is paid when a note is opened, not on a
+  keystroke.
+- **4 KB appends** took the same time on both sides, all card time:
+  fwrite 5.6 ms each in the statistics.
+- elf_loader's padding note again (`padding: 2951`), and again harmless.
+
+### The editor's own passes
+
+Reading editor.c for where md is called found what does make a
+per-keystroke window. draw() runs `layout()` (editor.c:436), which wraps
+the whole text in fixed-width cells, and `word_count()` (editor.c:460),
+which scans every byte for the status line. Neither makes a host call,
+so in a box each is one window per keystroke, and both grow with the
+document. `pos_line()`, the walk from the top to find the cursor's line,
+is a third.
+
+`boxlog.c` now times copies of them (`line_from`, `head_line`,
+`layout`, `word_count`, `pos_line`, from editor.c at be58350, with the
+statics as parameters). They are static and tangled with the display,
+so the probe cannot call the real ones. The copied `line_from` body
+was diffed against editor.c's and matches, apart from a comment. The
+copies run over the large note and then over the same note with every
+newline made a space: one 200 KB paragraph, the worst case for
+`layout()` and for `md_line()`, which is also timed on it. 45 columns,
+42 for a heading: 720 px portrait at scale 2, the narrowest the editor
+lays out, so the most lines. The line table's hash, the line count,
+the word count and the cursor's line go into the result file, so SAME
+covers them too.
+
+On a PC: the one-paragraph layout takes 0.4 to 0.7 ms, word_count 0.9
+to 1.4 ms and md_line 2 to 3 ms. Scaled by 0009's run (the P4 styled 4
+to 5 times slower than the PC's 7 ms), expect a few milliseconds for
+each on the board. That would be well under 20 ms even at the editor's
+256 KB limit. The board decides.
+
+*Checked:* `make -C m5tab5/boxlog/test`, both sides identical, the new
+lines required. `-O2 -Werror=all -Werror=extra`, firmware and ELF.
+*Not checked:* on a board.
+
+*What to look for:* `box: large: layout ... word_count ... pos_line ...
+one window each` and the `one-paragraph` lines, against the host's.
+Under 5 ms each: the editor's draw loop can be boxed as it is. Over 20
+ms: layout() should rewrap only from the edited line down, and
+word_count() should be kept as a running total. Those are main's changes
+as much as the box's, since the trusted editor pays the same time,
+only with interrupts on.

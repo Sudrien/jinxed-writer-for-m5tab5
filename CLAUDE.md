@@ -287,3 +287,4 @@ worked. A tag move keeps that line.
 - u-jinxed-0007 boxlog: the .bin no longer links feckless_box_libc
 - u-jinxed-0008 boxlog: the ELF-only component named after its directory
 - u-jinxed-0009 boxlog: the board's first run recorded, and a large note
+- u-jinxed-0010 boxlog: the large note's run recorded, and the editor's per-keystroke passes timed
