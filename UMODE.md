@@ -163,3 +163,76 @@ the registry cannot be reached from the session; a board.
 *What to look for on a Tab5:* the Libraries section of the settings page
 lists the feckless components at 0.10.2. Everything else should be as
 on main, with no `send_op_cond` errors repeating while the card is out.
+
+## u-jinxed-0003 -- the card for a boxed editor, from Jinxed's own .bin
+
+0001 counted storage writes as the first request to feckless-libs. They
+need no feckless change. `feckless_umode_load()` takes any table, and
+every name doclog.c and spell.c write with is already in the ABI's
+storage section (or `exports.txt`, for `esp_random`). Only the box's
+answers lack them. So Jinxed's .bin answers them itself:
+`m5tab5/components/jinxed_box`.
+
+- `jinxed_box_calls()`: Jinxed's own calls, then `feckless_box_calls_v1()`'s
+  without the names Jinxed answers. That way each name appears once and
+  nothing depends on which entry the loader takes first.
+- Its calls (`answers.txt`): `fopen`, `fclose`, `fread`, `fwrite`, `fgets`,
+  `fseek`, `ftell`, `fflush`, `ferror`, `fileno`, `fsync`, `stat`, `mkdir`,
+  `rename`, `unlink`, `storage_hold_brief`, `storage_release_brief`,
+  `storage_mark_hidden`, `esp_random`. It answers every FILE call, not
+  only the writes, so one table owns every FILE the app holds. A
+  feckless FILE token handed to a Jinxed call is refused.
+- In feckless' manner (u-feckless-0007, 0015): FILE and the fd that
+  `fileno()` gives are numbers. Every pointer is checked for its whole
+  length. Reads *and* writes go through one internal staging buffer in
+  8 KB slices, because a write that DMAs out of the box's PSRAM disturbs
+  the panel just as a read into it does.
+- Beyond it: paths and modes are copied out of the box before they are
+  checked. A path must be `JINXED_BOX_ROOT` (`/sd/jinxed`) or below it,
+  with no `..` segment; anything else gets `EACCES`. A failed call sets the
+  app's errno at its `tp`, which doclog reads after `mkdir()` and
+  `rename()`. Brief holds are counted per volume, so the app releases
+  only its own, and `jinxed_box_end()` closes what it left open and gives
+  back the rest.
+- Not restricted: what stays feckless's, which only reads. `opendir`,
+  `readdir` and FatFs's `f_open` can still read the whole card.
+
+Not yet answered, for the editor's modules: `fprintf` (spell.c's word
+list, one `"%s\n"`). It belongs in the ELF as `vsnprintf` into `fwrite`,
+not on the host: a host `fprintf` would walk a format whose `%s` is the
+app's pointer. That comes with the ELF's build.
+
+Nothing requires the component yet, so under `MINIMAL_BUILD` the
+firmware does not build it: no manifest or sdkconfig change.
+
+*Checked:* `make -C m5tab5/components/jinxed_box/test FECKLESS=<feckless-libs
+at 27229f8>` on the host under ASan and UBSan, against feckless's own
+`box_calls.c`, `box_storage.c`, umode's table, box and ext hook, and
+feckless_box_calls' stand-ins, over real files:
+- the table: no name twice, every feckless name still answered, the
+  kept entries feckless's own, `answers.txt` exactly Jinxed's 19;
+- doclog's sequences: mkdir and EEXIST through errno; a twin created,
+  fsynced through `fileno`, grown with zeros, 20000 bytes written at 64
+  across two slice edges; the bytes read back; `stat`'s size; the export
+  written to .tmp, the old one unlinked, renamed in; `fgets`; the hidden
+  mark;
+- every refusal: nine paths outside the root (`jbox_rootx/a`,
+  `jbox_root/a/..`, `jbox_root//..//x`, `""` and others) for fopen, mkdir,
+  unlink and stat, with nothing made; `..notes.md` allowed as a name;
+  rename with either end outside; a host pointer, a string off the
+  box's end, a 310-byte path; seven bad modes; buffers off the box's end
+  and an overflowing count; token and fd mixed up, feckless's FILE
+  token, a closed file twice; the ninth open; errno when tp is not in
+  the box; holds the app did not take, and `jinxed_box_end()` twice.
+- Eight changes are each caught: no `..` check, prefix only, the
+  segment walk skipped, a write slice from the wrong offset, a read slice
+  corrupted, releasing a hold the app did not take, the table
+  unfiltered, mkdir's errno unset. The slice change was not caught at
+  first: the test's pattern repeated every 256 bytes, a divisor of the
+  slice. The second try at the filter change failed to compile under
+  `-Werror` and so tested nothing.
+- `jbox_storage.c` compiles at `-O2 -Wall -Werror=all -Wextra -Werror=extra`
+  against the stand-ins.
+
+*Not checked:* an ESP-IDF build; picolibc's `struct stat` and a 32-bit
+`long` (no RISC-V or 32-bit toolchain in the session); a board.

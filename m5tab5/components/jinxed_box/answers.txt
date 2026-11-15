@@ -1,0 +1,23 @@
+# u-jinxed-0003: the names jinxed_box_calls() answers itself, one a line,
+# for the boxed ELF's check beside feckless_box_libc's boxcalls_names.txt.
+# Lines that are not a bare name are ignored. test/ checks this list
+# against the table.
+fopen
+fclose
+fread
+fwrite
+fgets
+fseek
+ftell
+fflush
+ferror
+fileno
+fsync
+stat
+mkdir
+rename
+unlink
+storage_hold_brief
+storage_release_brief
+storage_mark_hidden
+esp_random
