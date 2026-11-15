@@ -5,7 +5,7 @@
 #   make -C components/jinxed_box/test FECKLESS=<feckless-libs at umode>
 #
 # The stand-ins are feckless's test/fake*; SRC follows its test Makefile's
-# list (u-feckless-0051) and needs the same change when that one does.
+# list (u-feckless-0055) and needs the same change when that one does.
 #
 # SPDX-License-Identifier: MIT
 
@@ -20,8 +20,9 @@ CFLAGS := -std=gnu11 -g -O1 -Wall -Wextra -Werror \
 LDFLAGS := -fsanitize=address,undefined -lm
 SRC := jbox_test.c ../src/jbox_storage.c \
        $(B)/src/box_calls.c $(B)/src/box_storage.c $(B)/src/box_audio.c $(B)/src/box_rtos.c \
+       $(B)/src/box_codec.c $(B)/src/box_nvs.c \
        $(B)/test/fake_board.c $(B)/test/fake_storage.c $(B)/test/fake_audio.c \
-       $(B)/test/fake_rtos.c $(B)/test/fake_drivers.c \
+       $(B)/test/fake_rtos.c $(B)/test/fake_drivers.c $(B)/test/fake_codec.c $(B)/test/fake_nvs.c \
        $(U)/src/umode_calls.c $(U)/src/umode_box.c $(U)/src/umode_run.c
 
 all: run

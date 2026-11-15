@@ -663,3 +663,45 @@ so.
 *Checked:* `host.c` `-fsyntax-only` at `-O2 -Wall -Werror=all -Wextra
 -Werror=extra` against feckless-libs' headers. *Not checked:* on a
 board.
+
+## u-jinxed-0012 -- jinxed_box: feckless's write filter in place of the wrappers
+
+feckless-libs' umode branch now copies every path out of the box before
+it uses it and calls a launcher's write filter on that copy
+(u-feckless-0055, written for this). 0004's eleven wrappers checked
+their own copy and then passed feckless the app's pointer, so another
+thread of the app could change the path between the two. They are gone:
+
+- `jbox_storage.c` is now `jinxed_box_may_write()`, 0003's rule
+  (`JINXED_BOX_ROOT` or below, no `..` segment) as a public function, and
+  `jinxed_box_calls()`, which installs it with
+  `feckless_box_calls_write_filter()` and returns
+  `feckless_box_calls_v1()`'s table as it is. Call it before each load,
+  because `feckless_box_calls_end()` forgets the filter with the app.
+  boxlog's `host.c` already does both.
+- feckless filters the same calls 0004 wrapped. FatFs's `f_open` (when
+  writing) and `f_chmod` were refused outright in 0004. They are now
+  refused because their paths are drive-form (`0:/...`) and never under
+  `/sd/jinxed`. The effect is the same.
+- The 256-byte path limit goes with the wrappers. feckless takes paths
+  to 1024 bytes, so a path that long under the root reaches the file
+  system, which refuses it with its own errno (`ENAMETOOLONG`), not
+  `EFAULT`.
+- The component drops `fatfs` and `heap` from its requirements.
+
+The test follows. The table is feckless's own pointer. The rule is
+checked alone: seven allowed paths and thirteen refused, including
+`0:/jinxed/a`. The behaviour through feckless is as before, with a
+drive-form path standing for FatFs's. After `feckless_box_calls_end()`
+an outside write goes through, and `jinxed_box_calls()` puts the filter
+back. An unterminated mode is now feckless's `EFAULT`, since feckless
+reads the mode before it filters. The source list follows feckless's
+test Makefile again (box_codec.c and box_nvs.c, u-feckless-0052, 0053),
+as 0004 said it would need to.
+
+*Checked:* `make -C m5tab5/components/jinxed_box/test FECKLESS=<feckless-libs
+at 4832315>`, all passing. Three changes are each caught: the filter not
+installed (214 failures), no `..` check, prefix only.
+`jbox_storage.c` compiles at `-O2 -Wall -Werror=all -Wextra
+-Werror=extra`. The race is feckless's to test, and its `test_filter`
+does. *Not checked:* an ESP-IDF build; a board.

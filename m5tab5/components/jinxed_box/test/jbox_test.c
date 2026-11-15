@@ -1,11 +1,12 @@
 /* SPDX-License-Identifier: MIT
  *
- * Host test for jbox_storage.c (u-jinxed-0004): the guard in front of
- * feckless_box_calls_v1()'s table. doclog.c's sequence under ./jbox_root
- * goes through to feckless's handlers; every write named outside it is
- * refused before feckless sees it, with nothing made, and every read is
- * let through. Over real files, through feckless_umode's ext hook, against
- * feckless_box_calls' own stand-ins.
+ * Host test for jbox_storage.c (u-jinxed-0004, 0012): Jinxed's write
+ * filter, installed in feckless_box_calls (u-feckless-0055). doclog.c's
+ * sequence under ./jbox_root goes through; every write named outside it is
+ * refused by feckless on the filter's word, with nothing made; every read
+ * is let through. Over real files, through feckless_umode's ext hook,
+ * against feckless_box_calls' own stand-ins. feckless's own test covers the
+ * copy and the race.
  *
  *   make -C components/jinxed_box/test FECKLESS=<feckless-libs at umode>
  */
@@ -62,33 +63,33 @@ static void *box_alloc(uint32_t n) { void *p = (void *)(uintptr_t)feckless_box_a
 static char *put_str(const char *s) { char *p = box_alloc((uint32_t)strlen(s) + 1); strcpy(p, s); return p; }
 static bool exists(const char *p) { return access(p, F_OK) == 0; }
 
-static const char *const guarded[] = {
-    "remove", "unlink", "mkdir", "rmdir", "utime", "storage_mark_hidden", "rename",
-    "fopen", "storage_io_open", "f_open", "f_chmod",
-};
-#define N_GUARDED (sizeof guarded / sizeof *guarded)
-
+/* u-jinxed-0012: feckless's own table, the filter installed with it. */
 static void test_table(void)
 {
     uint32_t fn = 0, n2 = 0;
     const feckless_umode_call_t *f = feckless_box_calls_v1(&fn);
-    CHECK(jinxed_box_calls(&n2) == calls_tab && n2 == ncalls);     /* built once */
-    CHECK(ncalls == fn && calls_tab != f);
-    int wrapped = 0;
-    for (uint32_t i = 0; i < fn && i < ncalls; i++) {
-        CHECK(!strcmp(calls_tab[i].name, f[i].name));              /* same names, same order */
-        CHECK(calls_tab[i].data == f[i].data && calls_tab[i].data_len == f[i].data_len);
-        CHECK(calls_tab[i].flags == f[i].flags);
-        bool g = false;
-        for (size_t k = 0; k < N_GUARDED; k++) g |= !strcmp(f[i].name, guarded[k]);
-        if (g) {
-            CHECK(calls_tab[i].fn != f[i].fn && calls_tab[i].fn != NULL);
-            wrapped++;
-        } else {
-            CHECK(calls_tab[i].fn == f[i].fn);                     /* feckless's, unchanged */
-        }
+    CHECK(calls_tab == f && ncalls == fn);                         /* feckless's, as it is */
+    CHECK(jinxed_box_calls(&n2) == f && n2 == fn);
+}
+
+/* The filter alone. */
+static void test_filter_rule(void)
+{
+    static const char *const yes[] = {
+        "jbox_root", "jbox_root/", "jbox_root/a.md", "jbox_root//a", "jbox_root/..notes.md",
+        "jbox_root/a/b/.c.h0", "jbox_root/.../x",
+    };
+    static const char *const no[] = {
+        "", "/", "jbox_roo", "jbox_rootx", "jbox_rootx/a", "/jbox_root/a", "../jbox_root/a",
+        "jbox_root/..", "jbox_root/../x", "jbox_root/a/..", "jbox_root//..//x", "0:/jinxed/a",
+        "elsewhere/new",
+    };
+    for (size_t i = 0; i < sizeof yes / sizeof *yes; i++) {
+        if (!jinxed_box_may_write(yes[i])) { printf("FAIL refused %s\n", yes[i]); failed++; }
     }
-    CHECK(wrapped == (int)N_GUARDED);
+    for (size_t i = 0; i < sizeof no / sizeof *no; i++) {
+        if (jinxed_box_may_write(no[i])) { printf("FAIL allowed %s\n", no[i]); failed++; }
+    }
 }
 
 /* doclog.c, inside the root: every call reaches feckless. */
@@ -220,7 +221,10 @@ static void test_outside(void)
     CHECK(call("f_close", P(fp), 0, 0, 0) == FR_OK && fat_open == 0);
     for (uint32_t bit = 0x02; bit <= 0x10; bit <<= 1) {
         CHECK(call("f_open", P(fp), P(kept), FA_READ | bit, 0) == FR_DENIED);
-        CHECK(call("f_open", P(fp), P(inside), bit, 0) == FR_DENIED);  /* inside too */
+        /* On the board FatFs's paths are "0:/...", which the filter never
+         * allows; here the stand-in takes this project's paths, so a
+         * drive-form one stands for them. */
+        CHECK(call("f_open", P(fp), P(put_str("0:/jinxed/note.md")), bit, 0) == FR_DENIED);
     }
     CHECK(call("f_open", P(fp), P(kept), 0x30, 0) == FR_DENIED);     /* FA_OPEN_APPEND */
     CHECK(fat_open == 0);
@@ -238,10 +242,13 @@ static void test_outside(void)
     memcpy(lng, "jbox_root/", 10);
     memset(lng + 10, 'a', 300);
     *eno = 0;
-    CHECK(call("fopen", P(lng), P(put_str("wb")), 0, 0) == 0 && *eno == EFAULT);
+    /* u-jinxed-0012: feckless takes paths to 1024 bytes, and this one is
+     * under the root, so the filter allows it; the file system refuses a
+     * 300-byte name, and the app gets the host's errno for that. */
+    CHECK(call("fopen", P(lng), P(put_str("wb")), 0, 0) == 0 && *eno == ENAMETOOLONG);
     /* a mode that is not a string counts as writing: the path decides */
     *eno = 0;
-    CHECK(call("fopen", P(put_str("elsewhere/new")), P(edge), 0, 0) == 0 && *eno == EACCES);  /* the guard's, not feckless's EFAULT */
+    CHECK(call("fopen", P(put_str("elsewhere/new")), P(edge), 0, 0) == 0 && *eno == EFAULT);  /* feckless refuses the mode first */
     CHECK(!exists("elsewhere/new"));
 
     /* errno with tp outside the box is not written */
@@ -274,10 +281,20 @@ int main(void)
     eno = box_alloc(sizeof *eno);                                   /* the thread's errno block */
     w.ctx.x[4] = P(eno);
     test_table();
+    test_filter_rule();
     test_inside();
     test_outside();
+
+    /* The app's end forgets the filter: a write outside goes through, and
+     * jinxed_box_calls() puts it back for the next load. */
     feckless_box_calls_end();
-    free((void *)calls_tab);
+    const uint32_t f = call("fopen", P(put_str("elsewhere/after")), P(put_str("w")), 0, 0);
+    CHECK(f != 0 && call("fclose", f, 0, 0, 0) == 0 && exists("elsewhere/after"));
+    uint32_t n3 = 0;
+    jinxed_box_calls(&n3);
+    *eno = 0;
+    CHECK(call("fopen", P(put_str("elsewhere/again")), P(put_str("w")), 0, 0) == 0 && *eno == EACCES);
+    feckless_box_calls_end();
     printf(failed ? "%d FAILED\n" : "jinxed_box: all passed\n", failed);
     return failed != 0;
 }
