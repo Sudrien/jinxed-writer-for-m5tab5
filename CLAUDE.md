@@ -297,3 +297,4 @@ worked. A tag move keeps that line.
 - u-jinxed-0017 doclog: the log's path and end, for a boxed send
 - u-jinxed-0018 boxed: the editor in a box, Jinxed's own .bin, and the shim
 - u-jinxed-0019 boxed: the chooser compiled into the ELF's main, for storage_list's link
+- u-jinxed-0020 Keys: a key's release is never the event dropped (main's code)

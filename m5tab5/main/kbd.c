@@ -25,12 +25,16 @@
 #include "usbhost.h"
 
 #include "hidrpt.h"
+#include "kbdq.h"
 
 static const char *TAG = "kbd";
 
 #define KBD_MAX         (4)     /* keyboards (interfaces) open at once */
 #define PENDING_MAX     (8)
-#define QUEUE_LEN       (64)
+/* u-jinxed-0020: 64 for presses, as before, and room kept for releases
+ * (kbdq.h): a boot report's six keys for each keyboard that can be open. */
+#define RELEASE_ROOM    (KBD_REPORT_KEYS * KBD_MAX)
+#define QUEUE_LEN       (64 + RELEASE_ROOM)
 
 #define HID_CLASS               (0x03)
 #define HID_SUBCLASS_BOOT       (0x01)
@@ -50,6 +54,7 @@ typedef struct {
     usb_transfer_t      *xfer;
     uint8_t              prev_mods;
     uint8_t              prev[6];
+    kbdq_sent_t          sent;      /* u-jinxed-0020: whose presses went in */
 } kbd_ctx_t;
 
 static usb_host_client_handle_t s_client;
@@ -81,7 +86,10 @@ static portMUX_TYPE s_pending_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static kbd_dev_t *dev_rec(usb_device_handle_t dev);
 
-static void post(const kbd_ctx_t *k, uint8_t usage, uint8_t mods, bool down)
+/* u-jinxed-0020: a press only while the releases' room is free, a
+ * release only for a press that went in (kbdq.h), so a held key's
+ * release is never the one dropped. Only the client task posts. */
+static void post(kbd_ctx_t *k, uint8_t usage, uint8_t mods, bool down)
 {
     /* 0027: Command is the shortcut key on an Apple keyboard, Ctrl on
      * any other; the Windows key is nobody's (0028). */
@@ -91,9 +99,16 @@ static void post(const kbd_ctx_t *k, uint8_t usage, uint8_t mods, bool down)
         .usage = usage, .mods = mods, .down = down, .apple = apple,
         .cmd = (mods & (apple ? KBD_MOD_GUI : KBD_MOD_CTRL)) != 0,
     };
-    if (xQueueSend(s_queue, &ev, 0) != pdTRUE) {
-        ESP_LOGW(TAG, "queue full; key 0x%02X dropped", usage);
+    if (!kbdq_admit(&k->sent, usage, down, (unsigned)uxQueueSpacesAvailable(s_queue), RELEASE_ROOM)) {
+        if (down) ESP_LOGW(TAG, "queue full; key 0x%02X dropped", usage);
+        else if (kbdq_was_sent(&k->sent, usage)) ESP_LOGE(TAG, "no room for key 0x%02X's release", usage);
+        return;     /* else a release whose press was dropped: never seen down */
     }
+    if (xQueueSend(s_queue, &ev, 0) != pdTRUE) {
+        ESP_LOGE(TAG, "queue full; key 0x%02X %s dropped", usage, down ? "press" : "release");
+        return;
+    }
+    kbdq_sent(&k->sent, usage, down);
 }
 
 static bool held(const uint8_t set[6], uint8_t code)

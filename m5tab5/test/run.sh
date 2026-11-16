@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build and run the doclog, spell, hidrpt, md and fname host tests under ASan/UBSan. Needs a
+# Build and run the doclog, spell, hidrpt, md, fname and kbdq host tests under ASan/UBSan. Needs a
 # C compiler. A word list as the first argument (symspell-c99's
 # dictionaries/dictionary.txt) also builds and probes a full dictionary.
 # SPDX-License-Identifier: MIT
@@ -27,10 +27,13 @@ cc -g -O1 -Wall -Wextra -fsanitize=address,undefined \
    -I "$here/../main" -o "$t/hrt" "$here/hidrpt_host_test.c" "$here/../main/hidrpt.c"
 cc -g -O1 -Wall -Wextra -fsanitize=address,undefined \
    -I "$here/../main" -o "$t/fnt" "$here/fname_host_test.c" "$here/../main/fname.c"
+cc -g -O1 -Wall -Wextra -fsanitize=address,undefined \
+   -I "$here/../main" -o "$t/kqt" "$here/kbdq_host_test.c"
 list=${1:+$(cd "$(dirname "$1")" && pwd)/$(basename "$1")}
 (cd "$t" && ./dlt 2>/dev/null)
 (cd "$t" && ./hrt)
 (cd "$t" && ./mdt)
 (cd "$t" && ./fnt)
+(cd "$t" && ./kqt && ./kqt old)
 (cd "$t" && rm -rf sd && ./slt $list 2>/dev/null)
 rm -rf "$t"

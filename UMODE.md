@@ -1088,3 +1088,65 @@ then the chooser's) and linked `-shared`, the result imports exactly
 these five `storage_list_*` names. With the chooser in main's archive,
 it imports none of them and no `chooser_*`. *Not checked:* the ESP-IDF
 build after the change; a board.
+
+## u-jinxed-0020 -- a key's release is never the event dropped
+
+This is main's code, unchanged on this branch, and the fix applies to
+main as it is (kbd.c is the same file there). A board running the boxed
+editor showed it.
+
+**What a board did.** It ran `m5tab5/boxed` with feckless-libs'
+`umode` branch, and the editor redrew at about 60 ms a blit plus two
+10 ms fills a frame. At 62.7 s, typing outran the redraws, and kbd.c
+logged `queue full; key ... dropped` 50 times in 1.3 s, among them
+0x2C, space, four times. One of the dropped events was space's release.
+The editor repeats a held key until it sees that key's release
+(`held`, editor.c), so it typed spaces at its redraw rate, 11 frames a
+second for about 50 s by the call stats, until space was pressed again.
+The unboxed writer's queue had filled the same way before (u-jinxed-0018's
+first log). There the dropped keys happened to include no held key's
+release.
+
+**Why.** kbd.c's `post()` queued every event with `xQueueSend(..., 0)`
+and dropped whatever did not fit, presses and releases alike. A dropped
+press loses a character. A dropped release loses the end of a key.
+
+**Now** (`main/kbdq.h`, header-only, and kbd.c's `post()`):
+- A press goes in only while more than `RELEASE_ROOM` places are free:
+  six (a boot report's key array) for each of `KBD_MAX` keyboards, 24.
+  `QUEUE_LEN` is 64 + 24, so presses keep the 64 places they had.
+- A release goes in only if its press did. Each keyboard's context keeps
+  a bit for each usage, set when the press goes in and cleared when the
+  release does. The context is zeroed when the keyboard opens, as
+  before.
+- So the room is always enough. A release is admitted only for a key
+  the editor has seen go down, or will, and that is a key the keyboard
+  holds now, of which a boot report has at most six. A release whose
+  press was dropped is dropped too. The editor never saw that key down,
+  and the release would take a held key's room.
+- The unplug path (`reap()`) posts releases for the keys held, as
+  before, through the same rule.
+- Logged: a dropped press as before (`queue full; key ... dropped`).
+  "No room for a release" is an error that the rule makes impossible.
+
+Dropped presses still lose characters when typing outruns the redraws.
+This patch makes the overflow harmless, not rare. The editor drawing
+once for all the keys waiting, instead of once a key, would make it
+rare, and is a separate change.
+
+*Checked:* `./test/run.sh` now builds `test/kbdq_host_test.c`. It models
+the queue as kbd.c sizes it, with one to four keyboards whose reports
+hold at most six keys, and an editor that drains quickly, slowly or not
+at all for up to 450 events. Over 400 seeded runs of 20,000 events
+(nearly a million admitted, 3.4 million presses dropped), the editor
+never holds a key once everything is let go and drained, never sees a
+release for a key it does not hold, and no admitted release lacks room.
+The board's case also passes: space held, 200 hard-typed keys into a
+stalled queue, space let go. With `old`, the same test runs kbd.c's
+policy before this patch: all 400 runs leave keys down (19615 in all),
+and space sticks, as on the board. Two changes are each caught: presses
+allowed into the releases' room, and releases admitted without their
+press. kbd.c compiles at `-O2 -Wall -Werror=all -Wextra -Werror=extra`,
+before and after, against esp-usb's own `usb/usb_host.h` (GitHub, main)
+and stand-ins for the rest of ESP-IDF. *Not checked:* an ESP-IDF build;
+a board.
