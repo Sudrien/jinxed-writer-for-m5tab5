@@ -1210,3 +1210,29 @@ loop). editor.c compiles at `-O2 -Wall -Werror=all -Wextra
 ESP-IDF's. *Not checked:* an ESP-IDF build; a board. What a board should
 show: no `queue full` at a brisk pace, and the call stats with fewer
 `gfx_blit`s than keys while typing fast.
+
+## u-jinxed-0022 -- boxed: blit statistics on
+
+`m5tab5/boxed/sdkconfig.defaults` sets `CONFIG_FECKLESS_GFX_BLIT_STATS=y`.
+feckless_graphics_handler then logs, every 100 blits, the average blit and
+its parts (u-feckless-0032):
+- the lock;
+- the turn into the scratch, called "filter", which is the CPU's gather
+  or, with u-feckless-0057, the PPA's;
+- `draw_bitmap`;
+- the wait for the transfer;
+- the gaps between bands.
+
+The boxed editor's whole-screen blit was 84 ms on its first runs and
+60 ms on later ones (0023), with nothing yet saying which part, or
+whether the PPA was turning. A measurement, like the call statistics
+beside it. It goes off with them once the editor's drawing is settled.
+
+**`rm sdkconfig` in `m5tab5/boxed` before the next build** (CLAUDE.md:
+the defaults fill only keys an existing sdkconfig lacks, and an existing
+one already holds this key, off). The ELF's build copies the .bin's
+sdkconfig, so one removal does both.
+
+*Checked:* the option's name and meaning against feckless-libs' Kconfig
+and gfx.c at bf2e864 plus u-feckless-0057. *Not checked:* a build; a
+board.

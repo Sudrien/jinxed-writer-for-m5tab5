@@ -299,3 +299,4 @@ worked. A tag move keeps that line.
 - u-jinxed-0019 boxed: the chooser compiled into the ELF's main, for storage_list's link
 - u-jinxed-0020 Keys: a key's release is never the event dropped (main's code)
 - u-jinxed-0021 Editor: one redraw for all the keys waiting (main's code)
+- u-jinxed-0022 boxed: blit statistics on

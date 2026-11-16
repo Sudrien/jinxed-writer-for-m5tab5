@@ -21,3 +21,10 @@ CONFIG_WL_SECTOR_SIZE_4096=y
 # On for the first board runs, which are measurements; off once typing in
 # the box is settled, since it is a line every 5 s on the monitor.
 CONFIG_FECKLESS_UMODE_CALL_STATS=y
+
+# u-jinxed-0022: where a blit's time goes, every 100 blits (u-feckless-0032):
+# the lock, the turn into the scratch (the CPU's or, with u-feckless-0057,
+# the PPA's: the "filter" figure), draw_bitmap, the wait for the transfer,
+# and the gaps between bands. The editor's blit was 60 to 85 ms on a board
+# and this says which part. A measurement, like the call stats above.
+CONFIG_FECKLESS_GFX_BLIT_STATS=y
