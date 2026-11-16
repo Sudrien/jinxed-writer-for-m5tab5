@@ -1236,3 +1236,106 @@ sdkconfig, so one removal does both.
 *Checked:* the option's name and meaning against feckless-libs' Kconfig
 and gfx.c at bf2e864 plus u-feckless-0057. *Not checked:* a build; a
 board.
+
+## u-jinxed-0023 -- the board runs of u-jinxed-0018 to 0021
+
+Documentation only. The runs since 0018, in order, from the logs as
+reported, with the build each was (its version line) and what it
+settled. Times are from boot.
+
+### The writer, unboxed, on this branch (c07d382, 0018)
+
+Built from `m5tab5/`, not `m5tab5/boxed`, so nothing was boxed. The
+keyboard (04b4:0510) arrived at 99.7 s. From 116.5 s, `kbd: queue full;
+key ... dropped` appeared ten times, among them three Enters. The cause
+was the same as the boxed runs below: a redraw a key, slower than the
+typing. Read at the time as possibly a stall, it was not.
+
+### The first boxed run (3611083, built 19:48, 0019)
+
+    feckless_umode: app in its box at 0x4845b000, 16384 KB, 297 calls; 97 KB used by the load
+    jinxed: the editor, boxed, in 16384 KB, 297 calls
+    feckless_umode: app_main on core 1
+    editor: 57 columns, 13 rows, scale 3
+    doclog: deletable2.md: seq 4, 186 bytes
+
+- **It loaded and ran for 827 s with no fault.** The box is 16 MB, with
+  297 calls: feckless's and Jinxed's 23. The editor read the note from
+  the card. Wi-Fi came up, NTP set the RTC, and the radio went down, all
+  on the host while the box ran.
+- **It idled as designed.** `kbd_get` 32 times a second at 30.32 ms
+  each, the touch poll's timeout. `touch_get` 0.55 ms. About 3 ms a call
+  waiting for the app's lock. The dark fade came at 117 to 122 s
+  (`vTaskDelay` 8/s, `lcd_backlight_set_counts`, one blit), on its 2 min
+  default.
+- **No key reached the editor in this run.** No blit came between boot
+  and the fade, so nothing was typed.
+- A whole-screen blit took 85.5 ms, and 124 ms during the fade.
+
+### Typing in the box (the same build, later)
+
+    gfx_blit         5/s 83760.72 us each   418.8 ms/s
+    kbd_get         19/s 15528.69 us each   295.0 ms/s
+    touch_get       19/s  8019.76 us each   152.4 ms/s
+    gfx_fill_rect   10/s  9895.28 us each    99.0 ms/s
+    gfx_draw_text   75/s   252.79 us each    19.0 ms/s
+    fsync, fopen    on the card as typed
+
+- **Typing works in the box.** Keys arrive, the editor draws, and the
+  log is appended and fsynced.
+- **A frame was about 140 ms of host time:** an 84 ms blit, two 10 ms
+  fills, the rows' text, and `touch_get` at 8 ms a poll while drawing,
+  against 0.55 ms idle (u-feckless-0032 noted the same). That is about
+  7 frames a second, one a key. The box's own cost per call stays a few
+  microseconds.
+- The blit is feckless's `gather_rotated()`, a CPU turn of every pixel
+  at 90 degrees. That led to u-feckless-0057, the PPA.
+
+### A stuck space (3611083, built 20:46)
+
+The same Jinxed commit, rebuilt. Only feckless-libs' `umode` branch can
+have moved, presumably to u-feckless-0057. `gfx_blit` was now 60.5 ms.
+Whether the PPA turned is not in the log; 0022 will say.
+- At 62.7 s, kbd.c dropped 50 events in 1.3 s, 0x2C (space) four times
+  among them.
+- From about 57 s to 111 s, the editor drew 11 frames a second with
+  `kbd_get` at 30 us, which is a held key repeating. Space's release had
+  been dropped, so the editor never saw it come up. It typed spaces until
+  space was pressed again.
+- This led to **0020**: a key's release is never the event dropped.
+
+### 0020 on a board (9e19f23, built 20:56)
+
+- At 73.6 to 74.9 s, `queue full; key ... dropped` 13 times, every one a
+  press. Then `kbd_get` went back to its idle 30 ms. **No key stuck.**
+- Thirteen characters were still lost. The frame was about 90 ms (a
+  60 ms blit, two 10 ms fills, about 15 rows of text at 0.6 ms), one a
+  key. This led to **0021**: one redraw for all the keys waiting.
+
+### 0021 on a board (08a94f1, built 21:02)
+
+    gfx_blit        10/s 60420.61 us each   580.0 ms/s
+    gfx_fill_rect   19/s 10032.37 us each   194.6 ms/s
+    gfx_draw_text  144/s   720.57 us each   104.1 ms/s
+    touch_get       59/s   616.01 us each    36.6 ms/s
+    kbd_get         59/s   601.48 us each    35.7 ms/s
+    display_markdown 2222/s  6.57 us each    14.6 ms/s
+
+- From about 7 s to 22 s of typing: **no `queue full` at all.** There
+  were 56 to 60 key events a second against 8 to 10 frames, so a frame
+  took several keys, and `kbd_get` came back in 0.6 to 3.8 ms on average,
+  usually with a key already waiting. The append, fsync and the export
+  (rename, unlink, `storage_mark_hidden`) followed when typing stopped.
+- **The frame is now the cost:** about 100 ms, so 10 frames a second,
+  and a key shows within about 200 ms. Of that, 60 ms is the blit, 20 ms
+  the fills, and the rest the rows' text. `display_markdown` is asked
+  about 220 times a frame, an own call each time at 6.6 us. That is
+  harmless, and a candidate for caching.
+- This led to **0022** (where the blit's 60 ms goes) and **0024** (only
+  the rows that changed).
+
+### Not settled by these runs
+
+The settings page in the box (theme, Send notes now), the notes page
+(Cmd+O), the spell view, and a send with its log. None were exercised in
+the logs reported.
