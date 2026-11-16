@@ -1580,3 +1580,17 @@ boxed build with 0022 to 0026:
 *Checked:* `boxed/test/run.sh` and `m5tab5/test/run.sh` (both with
 `FECKLESS=`) pass. The figures are from the file's header and spell.c's
 `load_file()`. *Not checked:* any of the eight on a board.
+
+## u-jinxed-0028 -- boxed: no stpcpy flag
+
+**Needs u-feckless-0058** on feckless-libs' `umode` branch, which the
+boxed build's manifests follow. Without it, boxcheck refuses the ELF if
+GCC makes `stpcpy` of editor.c's `strcat()` chain.
+
+0018 built the ELF's main with `-fno-builtin-stpcpy`, because
+feckless_box_libc had no `stpcpy` and the box no host call for it.
+u-feckless-0058 puts `stpcpy` in the app, so the flag goes. The code
+GCC makes of the F1 legend can now be its usual.
+
+*Checked:* nothing to compile here. The change is one CMake line, and
+boxcheck is what tells. *Not checked:* an ESP-IDF build.

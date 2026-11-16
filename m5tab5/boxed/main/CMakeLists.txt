@@ -44,11 +44,9 @@ if(_boxed_elf)
                  feckless_box_libc       # linked into the ELF
                  jinxed_boxed_elfdeps    # where the three ELF-only ones come from
     )
-    # GCC turns editor.c's strcat() chain (the F1 legend) into stpcpy(),
-    # which is neither in the app (inapp.txt) nor answered by the box, so
-    # boxcheck would refuse the ELF. Seen with the host's GCC; whether
-    # riscv32-esp-elf's does it too is not known. The flag costs nothing.
-    target_compile_options(${COMPONENT_LIB} PRIVATE -fno-builtin-stpcpy)
+    # u-jinxed-0028: no -fno-builtin-stpcpy. The stpcpy GCC makes of
+    # editor.c's strcat() chain comes from feckless_box_libc
+    # (u-feckless-0058).
     return()
 endif()
 
