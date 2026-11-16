@@ -72,6 +72,11 @@ static const char *TAG = "editor";
  * panel. FOOT_SCALE is the status line's and the spelling view's small
  * print, a step smaller. */
 static int       s_scale = DISPLAY_SCALE_DEFAULT, s_foot = DISPLAY_SCALE_MIN;
+/* u-jinxed-0026: display_markdown(), read by measure() -- which runs at
+ * start and after the settings page, the one place it changes -- since a
+ * frame asked it for every line laid out and every row drawn: some 220
+ * calls a frame, each a host call in a box. */
+static bool      s_md_on = true;
 #define EDITOR_SCALE    (s_scale)
 #define FOOT_SCALE      (s_foot)
 static void measure(void);
@@ -215,7 +220,7 @@ static bool batt_tick(void)
  * s_cols_head. */
 static bool head_line(uint32_t at)
 {
-    if (!display_markdown() || !s_mds) return false;
+    if (!s_md_on || !s_mds) return false;
     uint32_t a = at;
     while (a > 0 && s_text[a - 1] != '\n') a--;
     uint32_t b = a;
@@ -295,8 +300,16 @@ static uint32_t line_cursor_max(int l)
 
 /* ---- drawing ---------------------------------------------------------- */
 
+/* u-jinxed-0026: counted again only after the text changed -- every edit
+ * goes through edited(), and a note's text arrives through attach() or
+ * doc_reset() -- not at every redraw: 6 ms at 200 KB (u-jinxed-0011),
+ * twice a frame since the status line has a signature (0024). */
+static uint32_t s_wc;
+static bool     s_wc_ok;
+
 static uint32_t word_count(void)
 {
+    if (s_wc_ok) return s_wc;
     uint32_t n = 0;
     bool in_word = false;
     for (uint32_t i = 0; i < s_len; i++) {
@@ -304,6 +317,8 @@ static uint32_t word_count(void)
         if (!sp && !in_word) n++;
         in_word = !sp;
     }
+    s_wc = n;
+    s_wc_ok = true;
     return n;
 }
 
@@ -390,7 +405,7 @@ static void run_strike(int x, int y, const char *s, int w, uint8_t m)
 static void draw_rows(int top, int r0, int rows, uint32_t hl_a, uint32_t hl_b)
 {
     const int W = gfx_w();
-    const bool md = display_markdown() && s_mds;
+    const bool md = s_md_on && s_mds;
     s_md_from = UINT32_MAX;             /* the text may have changed */
     for (int r = r0; r < r0 + rows && top + r < s_lines; r++) {
         const int l = top + r;
@@ -470,7 +485,7 @@ static uint32_t frame_sig(void)
 {
     uint32_t h = 2166136261u;
     const int v[] = { s_top, s_rows, s_line_h, s_scale, s_foot, s_foot_on, s_bare, s_status_y,
-                      gfx_w(), gfx_h(), display_markdown() && s_mds,
+                      gfx_w(), gfx_h(), s_md_on && s_mds,
                       COL_BG, COL_TEXT, COL_DIM, COL_CURSOR, COL_FIELD, COL_BTN };
     return sig_mix(h, v, sizeof v);
 }
@@ -484,7 +499,7 @@ static uint32_t row_sig(int r, uint32_t hl_a, uint32_t hl_b, int cl)
     const uint32_t rs = s_ls[l], re = s_le[l];
     h = sig_int(h, (int)(re - rs));
     h = sig_mix(h, s_text + rs, re - rs);
-    if (display_markdown() && s_mds && re > rs) {
+    if (s_md_on && s_mds && re > rs) {
         md_for(rs);
         h = sig_mix(h, s_mds + rs, re - rs);
     }
@@ -666,6 +681,7 @@ static void edited(void)
     s_pending = true;
     s_last_edit = now;
     s_anchor = NO_ANCHOR;           /* 0033: an edit ends the selection */
+    s_wc_ok = false;                /* u-jinxed-0026 */
 }
 
 static void undo_clear(void);     /* 0039 */
@@ -707,6 +723,7 @@ static bool attach(void)
         memcpy(s_text, s_base, rl);
         s_len = rl;
         s_cur = s_len;
+        s_wc_ok = false;                /* u-jinxed-0026 */
     } else if (rl > 0 && (uint64_t)rl + s_len <= TEXT_MAX) {
         if (s_ever_open) ESP_LOGW(TAG, "a different log on this card; keeping both texts");
         undo_clear();                   /* 0039: every position moves */
@@ -878,6 +895,7 @@ static void doc_reset(const char *name)
 {
     snprintf(s_name, sizeof s_name, "%s", name);
     s_len = s_cur = s_base_len = 0;
+    s_wc_ok = false;                    /* u-jinxed-0026 */
     s_anchor = NO_ANCHOR;
     s_want_col = -1;
     s_top = 0;
@@ -2124,6 +2142,7 @@ static void measure(void)
     const int H = gfx_h();
     s_scale  = display_text_scale();
     s_foot   = display_foot_scale();
+    s_md_on  = display_markdown();      /* u-jinxed-0026 */
     s_cols   = (W - 2 * MARGIN_X) / GFX_GLYPH_W(EDITOR_SCALE);
     s_cols_head = (W - 2 * MARGIN_X) / GFX_HEAVY_W(EDITOR_SCALE);
     s_line_h = GFX_GLYPH_H(EDITOR_SCALE) + 4 * EDITOR_SCALE;

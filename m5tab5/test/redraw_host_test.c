@@ -85,7 +85,8 @@ static bool s_t_md = true;
 int  display_text_scale(void) { return s_t_scale; }
 int  display_foot_scale(void) { return s_t_scale - 1 < 2 ? 2 : s_t_scale - 1; }
 void display_set_text_scale(int sc) { s_t_scale = sc < 2 ? 2 : sc > 5 ? 5 : sc; }
-bool display_markdown(void) { return s_t_md; }
+static unsigned long s_md_asked;     /* u-jinxed-0026: a host call each, boxed */
+bool display_markdown(void) { s_md_asked++; return s_t_md; }
 
 /* ---- the rest of the board, quiet ------------------------------------- */
 
@@ -212,8 +213,27 @@ static uint16_t s_snap[PW * PH];
 /* What the loop does after a key: redraw_changed(). Then the whole
  * redraw() must leave the panel and the shadow as they were; the
  * signatures go back as redraw_changed() left them. */
+/* u-jinxed-0026: the cached count against a fresh one. */
+static uint32_t fresh_word_count(void)
+{
+    uint32_t n = 0;
+    bool in_word = false;
+    for (uint32_t i = 0; i < s_len; i++) {
+        const bool sp = s_text[i] == ' ' || s_text[i] == '\n' || s_text[i] == '\t';
+        if (!sp && !in_word) n++;
+        in_word = !sp;
+    }
+    return n;
+}
+
 static void check_step(const char *what)
 {
+    checks++;
+    if (word_count() != fresh_word_count()) {
+        failures++;
+        printf("FAIL after %s (key %d): %u words cached, %u counted\n", what, keys,
+               (unsigned)word_count(), (unsigned)fresh_word_count());
+    }
     s_blit_px = 0;
     redraw_changed();
     partial_px += s_blit_px;
@@ -295,6 +315,7 @@ static void run_loop(const char *what)
 {
     s_len = 0;
     s_cur = 0;
+    s_wc_ok = false;                            /* u-jinxed-0026: the text replaced */
     s_anchor = NO_ANCHOR;
     s_sig_ok = false;
     s_script_i = 0;
@@ -409,10 +430,12 @@ int main(void)
     type(" bigger");
     press(KBD_MINUS, KBD_MOD_LCTRL, "Ctrl+- (text size)");
     s_t_md = false;
+    measure();                                  /* as the loop does after the settings page */
     check_step("markdown off");
     press(KBD_HOME, KBD_MOD_LCTRL, "Ctrl+Home");
     type("**now plain**");
     s_t_md = true;
+    measure();
     check_step("markdown on");
     for (int i = 0; i < 25; i++) press(KBD_DOWN, 0, "Down, scrolling");
     press(KBD_PAGEUP, 0, "Page Up");
@@ -433,8 +456,9 @@ int main(void)
     press(KBD_BACKSPACE, 0, "delete all");
     type("again");
 
-    printf("redraw: %d keys, %d checks, %d failures; blitted %.1f%% of what a whole redraw a key would\n",
-           keys, checks, failures, full_px ? 100.0 * (double)partial_px / (double)full_px : 0.0);
+    printf("redraw: %d keys, %d checks, %d failures; blitted %.1f%% of what a whole redraw a key would; "
+           "display_markdown asked %lu times\n",
+           keys, checks, failures, full_px ? 100.0 * (double)partial_px / (double)full_px : 0.0, s_md_asked);
 
     loop_phase();
     return failures ? 1 : 0;

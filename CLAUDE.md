@@ -303,3 +303,4 @@ worked. A tag move keeps that line.
 - u-jinxed-0023 Docs: the board runs of u-jinxed-0018 to 0021
 - u-jinxed-0024 Editor: only the rows that changed are drawn and blitted (main's code)
 - u-jinxed-0025 Keys: a held key repeats when it is due, not whenever no key came (main's code)
+- u-jinxed-0026 Editor: markdown read once a measure, the word count once an edit (main's code)

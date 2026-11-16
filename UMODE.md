@@ -1477,3 +1477,39 @@ rest of run.sh passes. *Not checked:* an ESP-IDF build; a board.
 0021's simulation (drawq_host_test.c) modelled the queue and the
 redraws, but not the held key's repeat. That is why this got past it,
 and why the test now runs the editor's real loop.
+
+## u-jinxed-0026 -- markdown read once a measure; the word count once an edit
+
+This is main's code too. Two costs the board runs showed (0023), now
+that a frame is small (0024).
+
+- **`display_markdown()` was asked for every line laid out and every row
+  drawn:** some 220 times a frame, each a host call at about 6.6 us in a
+  box. Most of the calls were `head_line()`, which layout calls for each
+  logical line. The setting changes in one place, the settings page, and
+  the editor calls `measure()` after that page closes. So `measure()`
+  now reads it into `s_md_on`, and the four uses in editor.c read that.
+  Behaviour is the same boxed or not, since the setting cannot change
+  between measures.
+- **The word count scanned the whole text** at every redraw: about 6 ms
+  at 200 KB (u-jinxed-0011). Since 0024 it ran twice when the status line
+  changed. Now it is kept and counted again only after the text changed.
+  Every edit goes through `edited()`, which clears it, and so do the two
+  places a note's text arrives without an edit: `attach()` filling an
+  empty page, and `doc_reset()`.
+
+*Checked:* `./test/run.sh` with `FECKLESS=<feckless-libs>`.
+- The redraw harness (0024) now checks, after every key, the kept count
+  against a fresh one: 928 checks, all passing.
+- Its markdown changes go through `measure()`, as the loop's do after
+  the settings page.
+- Over its script of 458 keys, `display_markdown()` is asked 5 times.
+  The editor before this patch asked it 10,513 times, with the same
+  script and the same stand-in counting the calls. (Both figures include
+  the harness's whole redraws.)
+- Leaving out the count's reset in `edited()` is caught at the first
+  key.
+
+editor.c compiles at `-O2 -Wall -Werror=all -Wextra -Werror=extra`.
+*Not checked:* an ESP-IDF build; a board. The call stats should no longer
+list `display_markdown` among a typing run's busiest calls.
