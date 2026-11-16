@@ -26,8 +26,16 @@
  *
  * SPDX-License-Identifier: MIT
  */
+/* u-jinxed-0025: a clock the loop's phase drives. The shim's own
+ * xTaskGetTickCount() is 0 and its vTaskDelay() nothing. */
+#include "shim.h"
+static TickType_t test_now;
+#define xTaskGetTickCount() (test_now)
+#define vTaskDelay(t) ((void)(test_now += (TickType_t)(t)))
+
 #include "../main/editor.c"
 
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -45,6 +53,8 @@ esp_err_t esp_lcd_panel_draw_bitmap(esp_lcd_panel_handle_t p, int x0, int y0, in
     const int w = x1 - x0;
     for (int y = y0; y < y1; y++) memcpy(&s_panel[(size_t)y * PW + x0], &d[(size_t)(y - y0) * w], (size_t)w * 2);
     s_blit_px += (unsigned long)w * (unsigned long)(y1 - y0);
+    /* u-jinxed-0025: a blit costs what it did on a board, 60 ms a screen. */
+    test_now += (TickType_t)((unsigned long)w * (unsigned long)(y1 - y0) * 60ul / ((unsigned long)PW * PH));
     return ESP_OK;
 }
 esp_err_t esp_lcd_dpi_panel_register_event_callbacks(esp_lcd_panel_handle_t p,
@@ -108,9 +118,30 @@ files_result_t files_page(char *c, size_t n, bool a, bool nn) { (void)c; (void)n
 void files_set_last(const char *n) { (void)n; }
 /* A sheet waits for a key: one is there when the script says so. */
 static bool s_key_waiting;
+
+/* u-jinxed-0025: the loop's phase. Presses and releases at given ticks;
+ * kbd_get() waits for the next one as the queue would, moving the clock,
+ * and ends the run (longjmp) once the script is done and the loop has
+ * had a while to finish. */
+typedef struct { TickType_t at; uint8_t usage; bool down; } scripted_t;
+static scripted_t s_script[512];
+static int s_script_n, s_script_i;
+static TickType_t s_script_end;
+static jmp_buf s_loop_done;
+
 bool kbd_get(kbd_event_t *ev, uint32_t t)
 {
-    (void)t;
+    if (s_script_n) {
+        if (s_script_i < s_script_n && s_script[s_script_i].at <= test_now + t) {
+            if (s_script[s_script_i].at > test_now) test_now = s_script[s_script_i].at;
+            *ev = (kbd_event_t){ .usage = s_script[s_script_i].usage, .down = s_script[s_script_i].down };
+            s_script_i++;
+            return true;
+        }
+        test_now += t;
+        if (s_script_i == s_script_n && test_now > s_script_end) longjmp(s_loop_done, 1);
+        return false;
+    }
     if (!s_key_waiting) return false;
     s_key_waiting = false;
     *ev = (kbd_event_t){ .usage = KBD_ESCAPE, .down = true };
@@ -252,6 +283,89 @@ static void type(const char *s)
     }
 }
 
+/* ---- u-jinxed-0025: the loop itself ------------------------------------ */
+
+static void add(TickType_t at, uint8_t usage, bool down)
+{
+    s_script[s_script_n++] = (scripted_t){ at, usage, down };
+}
+
+/* editor_run() from an empty page over the script, until it ends. */
+static void run_loop(const char *what)
+{
+    s_len = 0;
+    s_cur = 0;
+    s_anchor = NO_ANCHOR;
+    s_sig_ok = false;
+    s_script_i = 0;
+    s_script_end = s_script[s_script_n - 1].at + 2000;
+    if (!setjmp(s_loop_done)) editor_run();
+    s_script_n = 0;
+    (void)what;
+}
+
+static int count_char(char c)
+{
+    int n = 0;
+    for (uint32_t i = 0; i < s_len; i++) n += s_text[i] == c;
+    return n;
+}
+
+static void loop_phase(void)
+{
+    int f = 0;
+    char got[128];
+
+    /* Typed at 8 keys a second, each held 70 ms: every key once. */
+    {
+        const char *t = "hello world";
+        TickType_t at = test_now + 100;
+        for (const char *c = t; *c; c++, at += 125) {
+            uint8_t m;
+            const uint8_t u = usage_of(*c, &m);
+            add(at, u, true);
+            add(at + 70, u, false);
+        }
+        run_loop("typed");
+        snprintf(got, sizeof got, "%.*s", (int)s_len, s_text);
+        if (strcmp(got, t)) { printf("FAIL loop: typed \"%s\", the page has \"%s\"\n", t, got); f++; }
+    }
+    /* Rolled over at 15 keys a second: the next pressed before the last
+     * is released. */
+    {
+        const char *t = "quick brown fox";
+        TickType_t at = test_now + 100;
+        for (const char *c = t; *c; c++, at += 66) {
+            uint8_t m;
+            const uint8_t u = usage_of(*c, &m);
+            add(at, u, true);
+            add(at + 100, u, false);
+        }
+        /* releases are in the script out of order: sort by time */
+        for (int i = 1; i < s_script_n; i++)
+            for (int j = i; j > 0 && s_script[j].at < s_script[j - 1].at; j--) {
+                const scripted_t x = s_script[j]; s_script[j] = s_script[j - 1]; s_script[j - 1] = x;
+            }
+        run_loop("rolled over");
+        snprintf(got, sizeof got, "%.*s", (int)s_len, s_text);
+        if (strcmp(got, t)) { printf("FAIL loop: rolled over \"%s\", the page has \"%s\"\n", t, got); f++; }
+    }
+    /* Held 1.2 s: it repeats, from 400 ms, every 35 ms or a redraw. */
+    {
+        add(test_now + 100, KBD_K, true);
+        add(test_now + 1300, KBD_K, false);
+        run_loop("held");
+        const int k = count_char('k');
+        if (k < 10 || k > 1 + (1200 - 400) / 35 + 1) {
+            printf("FAIL loop: k held 1.2 s gave %d k\n", k);
+            f++;
+        }
+        printf("redraw loop: %s; k held 1.2 s gave %d\n", f ? "FAILED" : "typed and rolled over exactly", k);
+    }
+    checks += 3;
+    failures += f;
+}
+
 int main(void)
 {
     if (gfx_init(NULL, PW, PH) != ESP_OK) { printf("gfx_init failed\n"); return 1; }
@@ -321,5 +435,7 @@ int main(void)
 
     printf("redraw: %d keys, %d checks, %d failures; blitted %.1f%% of what a whole redraw a key would\n",
            keys, checks, failures, full_px ? 100.0 * (double)partial_px / (double)full_px : 0.0);
+
+    loop_phase();
     return failures ? 1 : 0;
 }

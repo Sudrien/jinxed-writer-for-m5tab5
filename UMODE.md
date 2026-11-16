@@ -1435,3 +1435,45 @@ Without a feckless-libs checkout, `run.sh` says it skips this test.
 plain keystroke, two `gfx_blit`s of a band each, instead of one whole
 screen, in the call stats; and the blit statistics (0022) with far
 fewer rows a blit.
+
+## u-jinxed-0025 -- a held key repeats when it is due, not whenever no key came
+
+This is main's code too, and the fix belongs with 0021 wherever that
+goes.
+
+**What a board did** (0021 to 0024): many repeated keys.
+
+**Why.** The editor repeats a held key in the branch its loop takes when
+`kbd_get()` returns no key. Before 0021 that branch was its own timer,
+because the loop's wait for a key was exactly the time to the next
+repeat (`next_repeat - now`), so "no key" meant "the repeat is due".
+0021 made the wait 0 while a redraw is owed, to take the next key
+without waiting. After every press, then, the loop looked again at once,
+found no key (the release is some 70 ms behind), and repeated the key
+on the spot: 400 ms early, and again after each redraw. A key typed
+normally came out two or three times.
+
+**Now** the branch also needs `xTaskGetTickCount() >= next_repeat`. In
+the comparison's own style, as the wait computed above it.
+
+*Checked:* `./test/run.sh` (FECKLESS=<feckless-libs>). The redraw harness
+(0024) gains a phase that runs the editor's own loop, `editor_run()`,
+against a clock of its own. The shim's `xTaskGetTickCount()` and
+`vTaskDelay()` are replaced by macros over it. Its stand-in `kbd_get()`
+waits for scripted presses and releases as the queue would, moving the
+clock. A blit costs its share of 60 ms a screen, as on the board. The
+phase ends once the script is done.
+- "hello world" at 8 keys a second, each held 70 ms. Before the fix, the
+  page had "hhheeellllllooo   wwwooorrrlllddd", which is the board's
+  repeated keys. After it, "hello world".
+- "quick brown fox" at 15 keys a second, rolled over: each key pressed
+  before the last is released. Exactly that, after the fix.
+- `k` held for 1.2 s: 24 `k`s, which is one, then from 400 ms one every
+  35 ms. Before the fix it was 35.
+
+editor.c compiles at `-O2 -Wall -Werror=all -Wextra -Werror=extra`. The
+rest of run.sh passes. *Not checked:* an ESP-IDF build; a board.
+
+0021's simulation (drawq_host_test.c) modelled the queue and the
+redraws, but not the held key's repeat. That is why this got past it,
+and why the test now runs the editor's real loop.

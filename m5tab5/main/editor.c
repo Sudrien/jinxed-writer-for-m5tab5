@@ -2364,7 +2364,10 @@ void editor_run(void)
             } else if (ev.usage == held) {
                 held = 0;
             }
-        } else if (held) {
+        } else if (held && xTaskGetTickCount() >= next_repeat) {
+            /* u-jinxed-0025: when it is due. No key came, but since 0021
+             * that may be because a redraw is owed and the loop did not
+             * wait, so no key is no longer the repeat's time. */
             dirty = key(&held_ev);
             next_repeat = xTaskGetTickCount() + pdMS_TO_TICKS(REPEAT_RATE_MS);
         }
