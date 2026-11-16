@@ -1150,3 +1150,63 @@ press. kbd.c compiles at `-O2 -Wall -Werror=all -Wextra -Werror=extra`,
 before and after, against esp-usb's own `usb/usb_host.h` (GitHub, main)
 and stand-ins for the rest of ESP-IDF. *Not checked:* an ESP-IDF build;
 a board.
+
+## u-jinxed-0021 -- one redraw for all the keys waiting
+
+This is main's code too: editor.c's loop, unchanged on this branch until
+now, and the fix applies to main as it is.
+
+**What a board did** (the boxed build with 0020, 9e19f23). It typed in
+bursts, and at 73.6 s kbd.c logged `queue full; key ... dropped` 13 times
+in 1.3 s. Every one was a press, and no key stuck: kbd_get went back to
+its idle 30 ms after, which is 0020 working. But each dropped press is a
+character lost. The call stats say why. While typing, the editor drew 11
+frames a second at about 90 ms each: a 60 ms `gfx_blit`, two 10 ms
+`gfx_fill_rect`s and about 15 rows of `gfx_draw_text` at 0.6 ms. It drew
+one frame per key that changed the screen. A key's own handling, host
+calls included, is about a millisecond. So above about 10 keys a second
+the queue only grew.
+
+**Now** (`main/drawq.h`, header-only, and editor.c's loop):
+- A key that changes the screen owes a redraw (`drawq_dirty()`). It
+  does not draw.
+- While one is owed, the loop's wait for a key is 0 (`drawq_wait()`), so
+  it goes straight to the next key already waiting.
+- The redraw is paid (`drawq_due()`) when a pass of the loop finds no
+  key, or once `DRAW_OWED_MS` (150) has passed since it was first owed,
+  so a stream of keys faster than the redraws still shows as it is
+  typed. The tick arithmetic is unsigned, so it survives the tick count
+  wrapping.
+- A held key's repeat is the editor's own timer, not the queue, so it
+  finds no key waiting and draws each repeat as before. The pages and
+  sheets a key opens either paint the whole screen or call `redraw()`
+  themselves (find's bar does, with the blit held), so an owed redraw
+  never shows stale text behind them. The key handler lays the text out
+  itself before it reads the line table (`layout()` at its top), so
+  several keys between redraws see the same layout one key would.
+
+*Checked:* `./test/run.sh` now builds `test/drawq_host_test.c`.
+- Unit checks of the three calls: nothing owed means a full wait and
+  nothing due; owed means no wait; a key keeps it owed until 150 ticks
+  from the first, not the last; no key means due once; the tick count
+  wrapping.
+- A simulation of the loop, a millisecond at a time. Its costs are the
+  board's: a 100 ms redraw, 1 ms a key, 1 ms of the loop's other work,
+  and the 30 ms touch poll. A typist presses a key every 1000/rate ms
+  and holds it 60 ms, into an 88-place queue by kbd.c's rule (kbdq.h,
+  0020).
+  - Drawing after every key, as before: nothing dropped at 5 and 8 keys
+    a second, but at 10 the keys are shown up to 2.5 s late. At 12 it
+    drops 113 presses a minute, then 298 at 15 and 586 at 20, shown
+    3.4 s late. That is the board's behaviour.
+  - With drawq: none dropped at any of those rates, and every key shown
+    within 103 ms at 5 and 8 keys a second and within 213 ms at 20,
+    with fewer redraws.
+
+Four changes are each caught: no 150-tick cap, waiting while a redraw is
+owed, the owed time restarted by each key, and always due (the old
+loop). editor.c compiles at `-O2 -Wall -Werror=all -Wextra
+-Werror=extra` against feckless-libs' headers and stand-ins for
+ESP-IDF's. *Not checked:* an ESP-IDF build; a board. What a board should
+show: no `queue full` at a brisk pace, and the call stats with fewer
+`gfx_blit`s than keys while typing fast.

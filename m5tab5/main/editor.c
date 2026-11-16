@@ -48,6 +48,7 @@
 #include "freertos/task.h"
 
 #include "display.h"
+#include "drawq.h"         /* u-jinxed-0021 */
 #include "md.h"
 #include "doclog.h"
 #include "files.h"
@@ -84,6 +85,8 @@ static void measure(void);
  * are a level, and kbd.c turns them into one press. */
 #define REPEAT_DELAY_MS (400)
 #define REPEAT_RATE_MS  (35)
+/* u-jinxed-0021: the longest a redraw waits for the keys behind it. */
+#define DRAW_OWED_MS    (150)
 
 /* Flush to the card this long after the last keystroke, or after this
  * long of typing without such a pause. */
@@ -2130,6 +2133,7 @@ void editor_run(void)
     bool had_card = storage_present(STORAGE_SD);
     bool touch_down = false;
     int  touch_x = 0, touch_y = 0;
+    drawq_t draw = { 0 };              /* u-jinxed-0021: a redraw owed */
 
     for (;;) {
         TickType_t wait = pdMS_TO_TICKS(500);
@@ -2140,6 +2144,8 @@ void editor_run(void)
         if (s_pending && wait > pdMS_TO_TICKS(250)) wait = pdMS_TO_TICKS(250);
         /* The gear needs the panel polled; a key still wakes us at once. */
         if (touch_present() && wait > pdMS_TO_TICKS(30)) wait = pdMS_TO_TICKS(30);
+        /* u-jinxed-0021: a redraw is owed: only look for a key already waiting. */
+        wait = drawq_wait(&draw, wait);
 
         bool open_settings = false;
         bool open_spell = false;
@@ -2252,6 +2258,8 @@ void editor_run(void)
         if (!held) idle_tick();         /* 0051 */
         lowbatt_tick();                 /* 0054 */
 
-        if (dirty) redraw();
+        /* u-jinxed-0021: one redraw for all the keys waiting (drawq.h). */
+        if (dirty) drawq_dirty(&draw, xTaskGetTickCount());
+        if (drawq_due(&draw, got, xTaskGetTickCount(), pdMS_TO_TICKS(DRAW_OWED_MS))) redraw();
     }
 }
