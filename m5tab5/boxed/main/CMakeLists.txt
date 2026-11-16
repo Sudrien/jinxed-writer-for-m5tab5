@@ -22,6 +22,16 @@ if(_boxed_elf)
     if(NOT CMAKE_BUILD_EARLY_EXPANSION)
         idf_component_get_property(_sh feckless_storage_handler COMPONENT_DIR)
         list(APPEND _srcs "${_sh}/src/storage_list.c")
+        # u-jinxed-0019: the chooser here too, not as an ELF_COMPONENTS
+        # library linked after this one. Only the chooser calls
+        # storage_list_*, so linked separately it came after main's archive
+        # had been scanned, storage_list.o was never pulled in, and the five
+        # names were left as imports (a shared object may have undefined
+        # names), which boxcheck refused. In one archive ld rescans until
+        # nothing more is pulled: files.o pulls the chooser, the chooser
+        # storage_list.o.
+        idf_component_get_property(_ch feckless_chooser COMPONENT_DIR)
+        list(APPEND _srcs "${_ch}/src/feckless_chooser.c")
     endif()
     idf_component_register(
         SRCS ${_srcs}

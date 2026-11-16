@@ -296,3 +296,4 @@ worked. A tag move keeps that line.
 - u-jinxed-0016 jinxed_box: the theme's colours, an own call for the box's COL_*
 - u-jinxed-0017 doclog: the log's path and end, for a boxed send
 - u-jinxed-0018 boxed: the editor in a box, Jinxed's own .bin, and the shim
+- u-jinxed-0019 boxed: the chooser compiled into the ELF's main, for storage_list's link

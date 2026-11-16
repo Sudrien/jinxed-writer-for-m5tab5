@@ -1051,3 +1051,40 @@ growing); the settings page opening, changing the theme, and coming back
 in it; Send notes now sending with the log attached; the notes page
 listing and opening; and no key lost while typing fast. The call
 statistics will say what a keystroke costs in host calls.
+
+## u-jinxed-0019 -- boxed: the chooser compiled into the ELF's main
+
+The first ESP-IDF build of 0018's ELF passed feckless_abi's check (92
+symbols, all in the core list, box, nvs, storage and `jinxed_calls_v1`)
+and then failed boxcheck:
+
+    imports names the box does not answer ...:
+      storage_list_find  storage_list_read  storage_list_sort
+      storage_list_volumes  storage_list_free
+
+**Why.** 0018 compiled `storage_list.c` into main's archive and linked
+feckless_chooser as an `ELF_COMPONENTS` library after it. Only the
+chooser calls `storage_list_*`, files.c does not. So when the linker
+scanned main's archive, nothing yet needed `storage_list.o` and it was
+left out. By the time the chooser's library asked for those names, that
+archive had been passed. A shared object may keep undefined names, so
+the link went through with five imports the box does not answer, and
+boxcheck stopped it, as it is there to do. 0018's check compared loose
+objects, which says what is defined but not what an archive link pulls
+in.
+
+**Now** `feckless_chooser.c` is compiled into main beside
+`storage_list.c`, found by its component's `COMPONENT_DIR` as
+`storage_list.c` is, and `ELF_COMPONENTS` no longer names the chooser.
+Within one archive, ld rescans until nothing more is pulled: files.o
+pulls in the chooser, and the chooser pulls in `storage_list.o`. main
+still requires feckless_chooser, for its header. The chooser's
+CMakeLists sets no definitions or private includes that its source
+would miss here.
+
+*Checked, on the host,* with the same sources compiled `-fPIC` at -O2
+against the same stand-ins: archived as 0018 links them (main's archive,
+then the chooser's) and linked `-shared`, the result imports exactly
+these five `storage_list_*` names. With the chooser in main's archive,
+it imports none of them and no `chooser_*`. *Not checked:* the ESP-IDF
+build after the change; a board.

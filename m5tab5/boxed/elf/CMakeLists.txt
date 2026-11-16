@@ -42,9 +42,8 @@ idf_build_set_property(JINXED_BOXED_ELF 1)
 
 project(jinxed_editor)
 
-# feckless_chooser is plain code that links into an app (its README); the
-# rest of main's requirements are headers, their calls the box's.
+# main's requirements are headers, their calls the box's; the chooser's
+# source is compiled into main itself (u-jinxed-0019, ../main/CMakeLists.txt).
 # Jinxed's own calls (u-jinxed-0013, 0016), which the .bin's table answers
 # beside feckless's and both checks then take as answered.
-set(ELF_COMPONENTS feckless_chooser)
 feckless_abi_box_elf(jinxed_editor OWN_CALLS "${_m5}/components/jinxed_box/jinxed_calls.txt")
