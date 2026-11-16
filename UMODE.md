@@ -1339,3 +1339,99 @@ Whether the PPA turned is not in the log; 0022 will say.
 The settings page in the box (theme, Send notes now), the notes page
 (Cmd+O), the spell view, and a send with its log. None were exercised in
 the logs reported.
+
+## u-jinxed-0024 -- only the rows that changed
+
+This is main's code too: editor.c's drawing, unchanged on this branch
+until now, and it applies to main as it is.
+
+0021 left the frame as the cost of typing: about 100 ms on a board (0023)
+for a key that changes one row and the word count, because `redraw()`
+clears the whole screen, draws every row and blits the whole screen.
+
+**`redraw_changed()`**, which the loop now calls in place of `redraw()`:
+- **Signatures.** Each screen row has one (`row_sig()`): FNV-1a over
+  whether it has a line, the line's bytes, their markdown styles, the
+  selection's part of it, the cursor's column if it is there, and its
+  cell width. The frame has one (`frame_sig()`): the scroll, the rows,
+  the line height, both scales, the footer, the bare page, the status
+  line's place, the screen's size, markdown on or off, and the six
+  colours the editor draws with. The status line has one
+  (`status_sig()`): the battery text, the word count, the gear's width,
+  caps, the card, a failed save, a conflict, the send's line, and the
+  note's name. `redraw()` records them all after drawing.
+- **Each row whose signature changed** has its slot cleared, its line
+  drawn (`draw_rows()` now takes a first screen row), the cursor drawn
+  if it is there, and that band blitted. A row slot is `s_line_h` tall
+  from 2 scale pixels above the glyphs. The selection's and a code
+  span's bands reach one scale pixel past the glyphs, so they stay in
+  their own slot.
+- **The status line**, if its signature changed, the same way: the band
+  from the bottom of the last row slot to the bottom of the screen.
+- **A whole `redraw()` instead** when the footer comes or goes, when the
+  frame's signature changed (a scroll, the text size, the theme, the way
+  up), or when the screen has been drawn over since the last redraw
+  (`s_sig_ok`). The spell view, the F1 and F12 sheets (`sheet()`), the
+  notes page (`open_files()`) and the settings page each clear
+  `s_sig_ok`. Find's bar is drawn over a `redraw()` made with the blit
+  held, and that redraw does not set it. The fade changes the filter,
+  not the picture, and power-off and low battery call `redraw()`.
+
+Restructured, as the smallest correct change: the status line's drawing
+is moved out of `redraw()` into `draw_status()`, and the cursor's into
+`draw_cursor()`. The code is unchanged, and `redraw()` calls both where
+it drew them. `draw_rows()` takes a first screen row, and its two
+callers pass 0.
+
+**A cost to know:** `status_sig()` counts the words each redraw, as
+`redraw()` did. When the status line changed, `draw_status()` counts
+them again. That is about 6 ms at 200 KB (u-jinxed-0011), and nothing
+on a short note.
+
+*Checked:* `./test/run.sh`, with `FECKLESS=<feckless-libs>`, now builds
+`test/redraw_host_test.c`. It compiles editor.c whole (included, for
+its statics) over feckless-libs' real gfx.c and that component's host
+shim, with stand-ins for the card, the sender and the rest
+(`test/redraw_fake/` holds four headers the shim lacks). The screen is
+turned 90 degrees, and the panel is an image every `draw_bitmap()` is
+copied into.
+- A script of 458 keys goes through the editor's own `key()`: typing,
+  Enter, a line long enough to wrap, Backspace across the wrap, a
+  heading, bold, code, a strike, a bold run across a wrap whose opening
+  marker is deleted and typed again on the row above, arrows, Shift
+  selections, twenty Enters so the text scrolls, caps lock, a send's
+  status line, the theme, the text size up and down, markdown off and
+  on, the F1 sheet drawn over the screen, select all and delete.
+- After each key, `redraw_changed()` draws, the panel is kept, and a
+  whole `redraw()` must leave the panel unchanged. All 464 checks pass.
+  The signatures are then put back as `redraw_changed()` left them, so
+  each key's partial redraw starts from the last partial one, and drift
+  shows too.
+- Over the script, the partial redraws blitted 9.0 % of the pixels that
+  a whole redraw a key would have.
+
+Six changes are each caught:
+- the cursor not in a row's signature (14 failures);
+- the word count not in the status line's (38);
+- a row not cleared (237);
+- a row not blitted (246);
+- the theme not in the frame's (1, every pixel);
+- the sheet and the spell view not clearing `s_sig_ok` (1, every pixel).
+
+The markdown styles left out of a row's signature passed the script at
+first. That is the case where only the row above changed, so the script
+gained the bold run across a wrap, and the change is now caught (4).
+
+Two changes pass, as they should:
+- The selection's start in a row is either the cursor, which the row's
+  signature already holds, or the fixed anchor.
+- Without the scroll in the frame's signature, every row's content
+  changes when the text scrolls, so each row is redrawn on its own. The
+  scroll is in it so that a scroll is one blit, not one a row.
+
+editor.c compiles at `-O2 -Wall -Werror=all -Wextra -Werror=extra`.
+Without a feckless-libs checkout, `run.sh` says it skips this test.
+*Not checked:* an ESP-IDF build; a board. What a board should show: on a
+plain keystroke, two `gfx_blit`s of a band each, instead of one whole
+screen, in the call stats; and the blit statistics (0022) with far
+fewer rows a blit.

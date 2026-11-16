@@ -386,12 +386,13 @@ static void run_strike(int x, int y, const char *s, int w, uint8_t m)
         gfx_fill_rect(x, y + GFX_STRIKE_Y(EDITOR_SCALE), w, GFX_STRIKE_H(EDITOR_SCALE), COL_TEXT);
 }
 
-static void draw_rows(int top, int rows, uint32_t hl_a, uint32_t hl_b)
+/* u-jinxed-0024: screen rows [r0, r0 + rows), line top at screen row 0. */
+static void draw_rows(int top, int r0, int rows, uint32_t hl_a, uint32_t hl_b)
 {
     const int W = gfx_w();
     const bool md = display_markdown() && s_mds;
     s_md_from = UINT32_MAX;             /* the text may have changed */
-    for (int r = 0; r < rows && top + r < s_lines; r++) {
+    for (int r = r0; r < r0 + rows && top + r < s_lines; r++) {
         const int l = top + r;
         const int y = MARGIN_Y + r * s_line_h;
         const uint32_t rs = s_ls[l], re = s_le[l];
@@ -432,6 +433,88 @@ static bool foot_warns(void)
 
 static bool s_hold_blit;        /* 0039: find draws its bar over, then blits */
 
+/*
+ * u-jinxed-0024: what each row of the screen shows, as a signature, so a
+ * redraw can repaint and blit only the rows that changed. A redraw was
+ * the whole screen -- a 60 ms blit on a board, two 10 ms fills and every
+ * row's text -- for a key that changed one row and the word count.
+ *
+ * A row's signature is everything its pixels come from: whether it has a
+ * line, the line's bytes, their markdown styles, the selection's part of
+ * it, the cursor's column if it is there, and its cell width (a heading's
+ * is wider). The frame's is everything every row shares: where the text
+ * is scrolled to, the rows, the scale, the size of the screen, the
+ * colours, markdown on or off, the footer on or off. The status line's is
+ * every string and flag it draws. A row slot is s_line_h tall from 2
+ * scale pixels above the glyphs, so a selection's or a code span's band,
+ * which reach one scale pixel past them, stays inside its own row.
+ *
+ * Only redraw_changed() uses them, and only after a redraw() whose screen
+ * nothing else has drawn over since: s_sig_ok. Anything else that draws
+ * on the screen -- find's bar, the spell view, a sheet, the notes page,
+ * the settings page -- clears it, and the next redraw is a whole one.
+ */
+#define SIG_ROWS_MAX    (64)
+static bool     s_sig_ok;
+static uint32_t s_sig_frame, s_sig_status, s_sig_row[SIG_ROWS_MAX];
+
+static uint32_t sig_mix(uint32_t h, const void *p, size_t n)
+{
+    const uint8_t *b = p;
+    for (size_t i = 0; i < n; i++) h = (h ^ b[i]) * 16777619u;     /* FNV-1a */
+    return h;
+}
+static uint32_t sig_int(uint32_t h, int v) { return sig_mix(h, &v, sizeof v); }
+
+static uint32_t frame_sig(void)
+{
+    uint32_t h = 2166136261u;
+    const int v[] = { s_top, s_rows, s_line_h, s_scale, s_foot, s_foot_on, s_bare, s_status_y,
+                      gfx_w(), gfx_h(), display_markdown() && s_mds,
+                      COL_BG, COL_TEXT, COL_DIM, COL_CURSOR, COL_FIELD, COL_BTN };
+    return sig_mix(h, v, sizeof v);
+}
+
+/* Screen row r, as draw_rows() and the cursor would draw it. */
+static uint32_t row_sig(int r, uint32_t hl_a, uint32_t hl_b, int cl)
+{
+    const int l = s_top + r;
+    uint32_t h = sig_int(2166136261u, l < s_lines);
+    if (l >= s_lines) return h;
+    const uint32_t rs = s_ls[l], re = s_le[l];
+    h = sig_int(h, (int)(re - rs));
+    h = sig_mix(h, s_text + rs, re - rs);
+    if (display_markdown() && s_mds && re > rs) {
+        md_for(rs);
+        h = sig_mix(h, s_mds + rs, re - rs);
+    }
+    const uint32_t a = hl_a > rs ? hl_a : rs;
+    const uint32_t b = hl_b < re ? hl_b : re;
+    const uint32_t end = (hl_a <= re && hl_b > re && re < s_len && re < line_next(l)) ? 1 : 0;
+    h = sig_int(h, a < b ? (int)(a - rs) : -1);
+    h = sig_int(h, a < b ? (int)(b - rs) : -1);
+    h = sig_int(h, (int)end);
+    h = sig_int(h, l == cl ? (int)(s_cur - rs) : -1);
+    return sig_int(h, row_gw(l));
+}
+
+/* The status line and what is under it: from the bottom of the last row
+ * slot to the bottom of the screen. */
+static int status_top(void) { return MARGIN_Y + s_rows * s_line_h - 2 * EDITOR_SCALE; }
+
+static uint32_t status_sig(void);
+static void draw_status(int W);
+
+/* u-jinxed-0024: split out of redraw(), unchanged. */
+static void draw_cursor(int cl)
+{
+    /* A bar before the character, as tall as the glyph -- in a heading's
+     * wider cells on a heading (0032). */
+    const int cx = MARGIN_X + (int)(s_cur - s_ls[cl]) * row_gw(cl);
+    const int cy = MARGIN_Y + (cl - s_top) * s_line_h;
+    gfx_fill_rect(cx - EDITOR_SCALE, cy, EDITOR_SCALE, GFX_GLYPH_H(EDITOR_SCALE), COL_CURSOR);
+}
+
 static void redraw(void)
 {
     const bool foot = !s_bare || foot_warns();
@@ -446,14 +529,27 @@ static void redraw(void)
     gfx_fill_rect(0, 0, W, H, COL_BG);
     uint32_t sa = 0, sb = 0;
     sel(&sa, &sb);
-    draw_rows(s_top, s_rows, sa, sb);
+    draw_rows(s_top, 0, s_rows, sa, sb);
 
-    /* A bar before the character, as tall as the glyph -- in a heading's
-     * wider cells on a heading (0032). */
-    const int cx = MARGIN_X + (int)(s_cur - s_ls[cl]) * row_gw(cl);
-    const int cy = MARGIN_Y + (cl - s_top) * s_line_h;
-    gfx_fill_rect(cx - EDITOR_SCALE, cy, EDITOR_SCALE, GFX_GLYPH_H(EDITOR_SCALE), COL_CURSOR);
+    draw_cursor(cl);
 
+    draw_status(W);
+
+    if (!s_hold_blit) gfx_blit(0, H);
+    /* u-jinxed-0024: what this screen is, for redraw_changed(); unless
+     * find is about to draw its bar over it. */
+    s_sig_ok = !s_hold_blit && s_rows <= SIG_ROWS_MAX;
+    if (s_sig_ok) {
+        s_md_from = UINT32_MAX;
+        s_sig_frame = frame_sig();
+        for (int r = 0; r < s_rows; r++) s_sig_row[r] = row_sig(r, sa, sb, cl);
+        s_sig_status = status_sig();
+    }
+}
+
+/* u-jinxed-0024: the status line, as redraw() drew it before. */
+static void draw_status(int W)
+{
     /* The status line: word count, and only that -- plus a note when
      * there is nothing to type on. Spec section 5. 0047: and the open
      * note's name, before the count, while no send has a line there. */
@@ -490,8 +586,63 @@ static void redraw(void)
     } else if (s_conflict) {            /* 0036: the .md was edited outside */
         gfx_draw_text(MARGIN_X + 21 * GFX_GLYPH_W(FOOT_SCALE), s_status_y, "conflict", FOOT_SCALE, W, COL_DIM);
     }
+}
 
-    if (!s_hold_blit) gfx_blit(0, H);
+/* u-jinxed-0024: everything draw_status() draws from. */
+static uint32_t status_sig(void)
+{
+    char batt[16];
+    batt_text(batt, sizeof batt);
+    uint32_t h = sig_mix(2166136261u, batt, strlen(batt));
+    const int v[] = { s_bare, kbd_present(), (int)word_count(), settings_gear_w(), s_caps,
+                      storage_present(STORAGE_SD), s_save_failed, s_conflict };
+    h = sig_mix(h, v, sizeof v);
+    h = sig_mix(h, s_send_line, strlen(s_send_line));
+    return sig_mix(h, s_name, strlen(s_name));
+}
+
+/*
+ * u-jinxed-0024: redraw(), as far as the screen changed since the last
+ * one: each row whose signature changed is cleared, drawn and blitted on
+ * its own, and the status line if its did. A row is one band of
+ * s_line_h, a fifteenth of the screen on its side at scale 3, so a key
+ * that changes one row and the word count blits two bands, not the
+ * screen. A whole redraw() when the last one has been drawn over, the
+ * footer comes or goes, or the frame changed -- the text scrolled, the
+ * scale, the theme, the way up.
+ */
+static void redraw_changed(void)
+{
+    const bool foot = !s_bare || foot_warns();
+    if (!s_sig_ok || foot != s_foot_on) { redraw(); return; }
+    layout();
+    const int cl = cursor_line();
+    if (cl < s_top) s_top = cl;
+    if (cl >= s_top + s_rows) s_top = cl - s_rows + 1;
+    if (frame_sig() != s_sig_frame) { redraw(); return; }
+
+    const int W = gfx_w();
+    uint32_t sa = 0, sb = 0;
+    sel(&sa, &sb);
+    s_md_from = UINT32_MAX;
+    for (int r = 0; r < s_rows; r++) {
+        const uint32_t sig = row_sig(r, sa, sb, cl);
+        if (sig == s_sig_row[r]) continue;
+        const int y0 = MARGIN_Y + r * s_line_h - 2 * EDITOR_SCALE;
+        gfx_fill_rect(0, y0, W, s_line_h, COL_BG);
+        draw_rows(s_top, r, 1, sa, sb);         /* clears s_md_from */
+        if (s_top + r == cl) draw_cursor(cl);
+        gfx_blit(y0, y0 + s_line_h);
+        s_sig_row[r] = sig;
+    }
+    const uint32_t ss = status_sig();
+    if (ss != s_sig_status) {
+        const int y0 = status_top();
+        gfx_fill_rect(0, y0, W, gfx_h() - y0, COL_BG);
+        draw_status(W);
+        gfx_blit(y0, gfx_h());
+        s_sig_status = ss;
+    }
 }
 
 /* ---- saving ----------------------------------------------------------- */
@@ -742,6 +893,7 @@ static void doc_reset(const char *name)
 
 static void open_files(bool apple, bool new_note)
 {
+    s_sig_ok = false;                   /* u-jinxed-0024: the notes page draws over */
     save_tick(true);
     export_tick(true);
     if (s_pending || !doclog_is_open()) {
@@ -1493,6 +1645,7 @@ static int spell_fit(void)
 
 static void spell_draw(const spell_view_t *v)
 {
+    s_sig_ok = false;                   /* u-jinxed-0024: drawn over */
     layout();
     const int W = gfx_w();
     const int H = gfx_h();
@@ -1506,7 +1659,7 @@ static void spell_draw(const spell_view_t *v)
     int top = pos_line(word ? v->a : s_cur) - SPELL_ABOVE;
     if (top > s_lines - rows) top = s_lines - rows;
     if (top < 0) top = 0;
-    draw_rows(top, rows, word ? v->a : 0, word ? v->b : 0);
+    draw_rows(top, 0, rows, word ? v->a : 0, word ? v->b : 0);
 
     /* Below: the word and what it might be, or a message. */
     gfx_fill_rect(0, pane, W, H - pane, COL_HEAD);
@@ -1745,6 +1898,7 @@ static const sheet_row_t k_keys_apple[] = {
  * narrow way up, the second under the first -- until a key or a tap. */
 static void sheet(const char *title, const sheet_row_t *row, int n)
 {
+    s_sig_ok = false;                   /* u-jinxed-0024: drawn over */
     const int W = gfx_w(), H = gfx_h();
     const int lh = GFX_GLYPH_H(SHEET_SCALE) + 10;
     /* 0039: a row on one line wherever both halves fit -- the narrow
@@ -2227,6 +2381,7 @@ void editor_run(void)
             held = 0;
             save_tick(true);            /* the card is current before we leave */
             export_tick(true);
+            s_sig_ok = false;           /* u-jinxed-0024: the page draws over */
             settings_page();
             measure();                  /* it may have turned the screen */
             touch_down = false;
@@ -2260,6 +2415,6 @@ void editor_run(void)
 
         /* u-jinxed-0021: one redraw for all the keys waiting (drawq.h). */
         if (dirty) drawq_dirty(&draw, xTaskGetTickCount());
-        if (drawq_due(&draw, got, xTaskGetTickCount(), pdMS_TO_TICKS(DRAW_OWED_MS))) redraw();
+        if (drawq_due(&draw, got, xTaskGetTickCount(), pdMS_TO_TICKS(DRAW_OWED_MS))) redraw_changed();   /* 0024 */
     }
 }
