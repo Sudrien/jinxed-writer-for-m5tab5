@@ -1594,3 +1594,24 @@ GCC makes of the F1 legend can now be its usual.
 
 *Checked:* nothing to compile here. The change is one CMake line, and
 boxcheck is what tells. *Not checked:* an ESP-IDF build.
+
+## u-jinxed-0029 -- boxed: the measurements off
+
+**Apply this after the board run that 0022 to 0028 are for.** That run
+is the one that reads the blit statistics and the call statistics.
+
+`m5tab5/boxed/sdkconfig.defaults` turns both off:
+- `CONFIG_FECKLESS_UMODE_CALL_STATS`, the busiest host calls every 5 s,
+  on since 0018;
+- `CONFIG_FECKLESS_GFX_BLIT_STATS`, the blit's parts every 100 blits, on
+  since 0022.
+
+Each was a line on the monitor every few seconds, and each costs a little
+time per call or blit. They are written as `# ... is not set`, which an
+sdkconfig reads as off and which overrides each option's Kconfig default.
+To measure again, set one back to `y` and run `rm sdkconfig`.
+
+**`rm sdkconfig` in `m5tab5/boxed` before the next build.**
+
+*Checked:* the two option names against 0018's and 0022's lines. *Not
+checked:* a build.
