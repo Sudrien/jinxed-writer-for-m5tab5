@@ -304,3 +304,4 @@ worked. A tag move keeps that line.
 - u-jinxed-0024 Editor: only the rows that changed are drawn and blitted (main's code)
 - u-jinxed-0025 Keys: a held key repeats when it is due, not whenever no key came (main's code)
 - u-jinxed-0026 Editor: markdown read once a measure, the word count once an edit (main's code)
+- u-jinxed-0027 boxed: the shim on the host; the spell view's room; what a board should try

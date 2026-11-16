@@ -1513,3 +1513,70 @@ that a frame is small (0024).
 editor.c compiles at `-O2 -Wall -Werror=all -Wextra -Werror=extra`.
 *Not checked:* an ESP-IDF build; a board. The call stats should no longer
 list `display_markdown` among a typing run's busiest calls.
+
+## u-jinxed-0027 -- the shim on the host; the spell view's room; what a board should try
+
+Three parts: a test, a measurement from the file, and a list for the
+board. No firmware code changes.
+
+**`m5tab5/boxed/test/shim_host_test.c`** (and `boxed/test/run.sh`,
+`FECKLESS=<feckless-libs>`). It compiles `boxed/main/shim.c` as it ships.
+Jinxed's own calls are stand-ins that answer as `jbox_calls.c` does and
+record what they were given. Seventeen checks:
+- `display_col` is the box's own copy, by value, and a host theme change
+  is not seen until it is fetched;
+- the settings page, left at once, opens once and sends nothing. The
+  theme is fetched again and the notes' mode forgotten, once;
+- "send now" twice and then left: the editor's send runs twice and the
+  page opens three times. With no send registered, it still reopens;
+- `settings_author()` is NULL for none, a copy in the box's buffer
+  otherwise, and a long name is truncated to `DOCLOG_AUTHOR_MAX`;
+- a send with a log function passes doclog's path and end. Without one,
+  no log, and NULL for no foot. With no log open, no log.
+
+Four changes to shim.c are each caught: the theme not fetched after the
+page, the mode not forgotten, the page not reopened after a send, and a
+log attached without a log function.
+
+**The spell view's room in the box.** It is read from the dictionary the
+firmware fetches: `english.sym` at Sudrien/jinxed-writer-spellcheck-dictionaries
+0c769e5, 15,347,221 bytes, with the SHA-256 that spell.h names. Its
+header gives 86,060 words, 688,689 keys and 2,111,352 postings.
+`spell_load()` keeps in memory:
+- the words, 785,841 bytes;
+- their frequencies, 344,240;
+- the directory, 262,148;
+- an offset per word, 344,240;
+- a stamp per word, 86,060;
+- the user's words, up to 1024 x 41.
+
+That is about 1.86 MB. The keys and postings, the other 13 MB of the
+file, are read from the card a piece at a time during a lookup. The
+editor's own buffers are about 5 MB: four TEXT_MAX buffers, two line
+tables, undo's arena and ops, and doclog's. So the box needs about
+7 MB of its 16 MB. The spell view fits, and no size changes.
+
+**What a board should try**, of what no run has exercised (0023), on the
+boxed build with 0022 to 0026:
+1. A plain keystroke: two `gfx_blit`s of a band each (0024), with the
+   blit statistics' rows a blit far below the screen's (0022).
+2. The settings page from the gear and from Cmd+, : change the theme.
+   The editor should come back in it, the whole screen, with no rows
+   left in the old colours.
+3. The settings page's Send notes now: it sends, and the page reopens at
+   its top. The mail should have the note and its log attached.
+4. Cmd+Enter in the editor: a send, with the status line's progress.
+5. Cmd+O: the notes page lists, opens a note, names a new one, renames
+   one. Then, on the settings page, switch Daily and File, and power off
+   and on: the mode should hold.
+6. F7, with the dictionary on the card: the view loads, suggests and
+   corrects. The call stats will show its reads.
+7. The idle steps: dim at 30 s, dark at 2 min (the fade), and a key
+   wakes it, typed (0055). Power-off at the set time, on the pack: it
+   goes off. On USB: the "did not power off" line (0015).
+8. A dark wake with a note unsent: host-side, before the box loads. The
+   log should show the send, then power-off.
+
+*Checked:* `boxed/test/run.sh` and `m5tab5/test/run.sh` (both with
+`FECKLESS=`) pass. The figures are from the file's header and spell.c's
+`load_file()`. *Not checked:* any of the eight on a board.

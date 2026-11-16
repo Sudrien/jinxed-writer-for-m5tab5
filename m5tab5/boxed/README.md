@@ -47,6 +47,13 @@ It flashes to the same partitions as the writer, and reads and writes
 the same `/sd/jinxed` and NVS. Going between the two is a reflash, and
 the notes carry over.
 
+## Tests
+
+`test/run.sh`, with `FECKLESS=<feckless-libs>` (or a checkout beside this
+repository), builds `main/shim.c` on the host against stand-ins for
+Jinxed's own calls (u-jinxed-0027). The writer's own host tests, which
+the ELF's sources share, are `../test/run.sh`.
+
 ## Differences from the writer
 
 - **The settings page reopens at its top after Send notes now**, since
